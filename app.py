@@ -501,7 +501,7 @@ def make_dummy_df(commodity="Onion", quantity_kg=500):
 # =============================================================================
 # MODEL CALL
 # =============================================================================
-def get_recommendations(commodity, quantity_kg, district, state, month_num, year, max_dist):
+def get_recommendations(commodity, quantity_kg, district, state, month_num, year):
     """Call real model; fall back to dummy on any error."""
     try:
         from recommender import recommend
@@ -512,8 +512,8 @@ def get_recommendations(commodity, quantity_kg, district, state, month_num, year
             farmer_state     = state,
             target_month     = month_num,
             target_year      = year,
-            max_distance_km  = max_dist,
-            top_n            = 3,   # same as SMS
+            max_distance_km  = 200,         # hardcoded 200, same as SMS
+            top_n            = 3,            # same as SMS
         )
         if results and len(results) > 0:
             return results, False   # (data, is_dummy)
@@ -819,16 +819,22 @@ def render_form_section():
     with c3:
         commodity = st.selectbox("Crop *", CROPS, index=1, key="crop")
 
-    # Row 2: quantity + month + max distance + submit  (year = always now, same as SMS)
-    c4, c5, c6, c7 = st.columns([2, 2.5, 2.5, 1.8])
+    # Row 2 — same inputs as SMS: qty bucket + month + submit
+    #   QTY_MAP {1:250, 2:750, 3:2500, 4:6000}  (identical to sms_handler.py)
+    QTY_OPTIONS = {
+        "1 — Below 500 kg  (250 kg)": 250,
+        "2 — 500-1000 kg   (750 kg)": 750,
+        "3 — 1000-5000 kg (2500 kg)": 2500,
+        "4 — Above 5000 kg (6000 kg)": 6000,
+    }
+    c4, c5, c6 = st.columns([2.5, 2.5, 1.8])
     with c4:
-        quantity_kg = st.number_input("Quantity (kg) *", min_value=10, value=500, step=50, key="qty")
+        qty_label  = st.selectbox("Quantity *", list(QTY_OPTIONS.keys()), index=1, key="qty")
+        quantity_kg = QTY_OPTIONS[qty_label]
     with c5:
         month_name = st.selectbox("Month to Sell *", MONTHS,
                                   index=pd.Timestamp.now().month - 1, key="mon")
     with c6:
-        max_dist = st.slider("Max Distance (km)", 50, 500, 200, step=25, key="maxd")
-    with c7:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         submitted = st.button("🔍 Find Best Mandi", key="submit")
 
@@ -837,12 +843,11 @@ def render_form_section():
     return {
         "farmer_name": farmer_name.strip() if farmer_name else "",
         "commodity":   commodity,
-        "quantity_kg": quantity_kg,
+        "quantity_kg": quantity_kg,          # 250 / 750 / 2500 / 6000
         "pincode":     pincode.strip() if pincode else "",
         "month_num":   MONTHS.index(month_name) + 1,
         "month_name":  month_name,
         "year":        pd.Timestamp.now().year,   # always current year, same as SMS
-        "max_dist":    max_dist,
         "submitted":   submitted,
     }
 
@@ -900,16 +905,14 @@ def render_results(inputs):
             inputs["commodity"], inputs["quantity_kg"],
             district, state,
             inputs["month_num"], inputs["year"],
-            inputs["max_dist"],
         )
 
     if not records:
         st.markdown(f"""
         <div style="background:{BG_OFFWHITE};padding:40px 80px;">
             <div style="background:white;border-radius:4px;padding:32px;text-align:center;color:{TEXT_MUTED};">
-                <b>No markets found</b> within {inputs['max_dist']} km of <b>{district}, {state}</b>.<br><br>
-                💡 Try increasing the <b>Max Distance</b> slider to 500 km,
-                or try a different crop that's traded in your region.
+                <b>No markets found</b> within 200 km of <b>{district}, {state}</b>.<br><br>
+                Try a different crop or month that is traded near your region.
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -937,7 +940,7 @@ def render_results(inputs):
         <div style="font-size:0.85rem;color:{TEXT_MUTED};margin-top:4px;">
             {inputs['quantity_kg']} kg &nbsp;·&nbsp; {district}, {state}
             &nbsp;·&nbsp; {inputs['month_name']} {inputs['year']}
-            &nbsp;·&nbsp; Within {inputs['max_dist']} km
+            &nbsp;·&nbsp; Within 200 km
             &nbsp;·&nbsp; {len(records)} markets found
         </div>
     </div>
