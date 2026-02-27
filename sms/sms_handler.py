@@ -11,8 +11,10 @@ import sys
 import datetime
 import csv
 
-# ── Add parent directory to path so we can import recommender ────────────────
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# ── Set working directory to project root so recommender's relative paths work ─
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.chdir(_PROJECT_ROOT)                          # datasets/, model/ now resolve
+sys.path.insert(0, _PROJECT_ROOT)
 from recommender import recommend
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -44,59 +46,201 @@ QTY_LABELS = {
 }
 
 
-# ── Supported districts & name normalisation ─────────────────────────────────
-SUPPORTED_DISTRICTS = {
-    "Coimbatore", "Salem", "Erode", "Madurai", "Trichy",
-    "Tirupur", "Dindigul", "Namakkal", "Pollachi", "Thanjavur", "Chennai"
+# ── District name normalisation ───────────────────────────────────────────────
+# Auto-derived by diffing 'india pincode final.csv' district names against
+# 'district wise centroids.csv'. Covers all 26 states.
+# Keys = lowercase pincode-CSV spelling → Value = exact centroid-CSV spelling.
+DISTRICT_ALIASES = {
+    # Andhra Pradesh
+    "ananthapur":               "Anantapur",
+    "karim nagar":              "Karimnagar",
+    "k.v.rangareddy":           "Rangareddi",
+    "visakhapatnam":            "Vishakhapatnam",
+
+    # Assam
+    "dhubri":                   "Dhuburi",
+    "mammit":                   "Mamit",
+
+    # Bihar
+    "east champaran":           "Purba Champaran",
+    "west champaran":           "Pashchim Champaran",
+    "kaimur (bhabua)":          "Bhabua",
+    "palamau":                  "Palamu",
+    "arwal":                    "Jehanabad",       # nearest centroid
+
+    # Chhattisgarh
+    "bijapur(cgh)":             "Bijapur",
+
+    # Delhi
+    "central delhi":            "Delhi",
+    "east delhi":               "Delhi",
+    "new delhi":                "Delhi",
+    "north delhi":              "Delhi",
+    "north west delhi":         "Delhi",
+    "south delhi":              "Delhi",
+    "south west delhi":         "Delhi",
+    "west delhi":               "Delhi",
+
+    # Gujarat
+    "ahmedabad":                "Ahmadabad",
+    "ahmed nagar":              "Ahmednagar",
+    "banaskantha":              "Banas Kantha",
+    "gandhi nagar":             "Gandhinagar",
+    "sabarkantha":              "Sabar Kantha",
+    "surendra nagar":           "Surendranagar",
+
+    # Himachal Pradesh
+    "bilaspur (hp)":            "Bilaspur",
+    "hamirpur(hp)":             "Hamirpur",
+    "lahul & spiti":            "Lahul And Spiti",
+
+    # J&K
+    "ananthnag":                "Anantnag (Kashmir South)",
+    "baramulla":                "Baramula (Kashmir North)",
+    "poonch":                   "Punch",
+    "reasi":                    "Rajauri",         # nearest centroid
+
+    # Jharkhand
+    "giridh":                   "Giridih",
+    "khunti":                   "Ranchi",          # nearest centroid
+    "ramgarh":                  "Ranchi",          # nearest centroid
+    "seraikela-kharsawan":      "Saraikela Kharsawan",
+    "east singhbhum":           "Purba Singhbhum",
+    "west singhbhum":           "Pashchim Singhbhum",
+
+    # Karnataka
+    "bangalore":                "Bangalore Urban",
+    "chickmagalur":             "Chikmagalur",
+    "chikkaballapur":           "Chikmagalur",     # nearest centroid
+    "dakshina kannada":         "Dakshin Kannad",
+    "davangere":                "Davanagere",
+    "ramanagar":                "Bangalore Rural",  # nearest centroid
+    "krishnagiri":              "Dharmapuri",       # nearest centroid
+    "uttara kannada":           "Uttar Kannand",
+    "yadgir":                   "Gulbarga",         # nearest centroid
+    "bijapur(kar)":             "Bijapur",
+
+    # Kerala
+    "kasargod":                 "Kasaragod",
+    "pathanamthitta":           "Pattanamtitta",
+
+    # Madhya Pradesh
+    "alirajpur":                "Jhabua",           # nearest centroid
+    "ashok nagar":              "Ashoknagar",
+    "budaun":                   "Badaun",
+    "khargone":                 "East Nimar",
+    "rajnandgaon":              "Raj Nandgaon",
+    "singrauli":                "Sidhi",            # nearest centroid
+
+    # Maharashtra
+    "aurangabad(bh)":           "Aurangabad",
+    "beed":                     "Bid",
+    "buldhana":                 "Buldana",
+    "gadchiroli":               "Garhchiroli",
+    "gondia":                   "Gondiya",
+    "mumbai":                   "Greater Bombay",
+    "raigarh(mh)":              "Raigarh",
+
+    # Manipur
+    "imphal east":              "East Imphal",
+    "imphal west":              "West Imphal",
+
+    # Meghalaya
+    "ri bhoi":                  "Ri-Bhoi",
+
+    # Nagaland
+    "kiphire":                  "Tuensang",         # nearest centroid
+    "longleng":                 "Mokokchung",       # nearest centroid
+    "peren":                    "Kohima",           # nearest centroid
+
+    # Odisha
+    "balangir":                 "Bolangir",
+    "baleswar":                 "Baleshwar",
+    "bargarh":                  "Baragarh",
+    "debagarh":                 "Deogarh",
+    "gadchiroli":               "Garhchiroli",
+    "jagatsinghapur":           "Jagatsinghpur",
+    "jajapur":                  "Jajpur",
+    "kendujhar":                "Keonjhar",
+    "khorda":                   "Khordha",
+    "nabarangapur":             "Nabarangpur",
+    "sonapur":                  "Sonepur",
+    "sundergarh":               "Sundargarh",
+
+    # Puducherry
+    "pondicherry":              "Puducherry",
+
+    # Punjab
+    "nawanshahr":               "Nawan Shehar",
+    "ropar":                    "Rupnagar",
+
+    # Rajasthan
+    "chittorgarh":              "Chittaurgarh",
+    "dholpur":                  "Dhaulpur",
+    "jhujhunu":                 "Jhunjhunun",
+
+    # Tamil Nadu
+    "tiruchirappalli":          "Tiruchchirappalli",
+    "tiruchirapalli":           "Tiruchchirappalli",
+    "tiruchi":                  "Tiruchchirappalli",
+    "trichy":                   "Tiruchchirappalli",
+    "tirunelveli":              "Tirunelveli Kattabo",
+    "tiruvallur":               "Thiruvallur",
+    "tiruvarur":                "Thiruvarur",
+    "kancheepuram":             "Kancheepuram",
+    "kanchipuram":              "Kancheepuram",
+    "the nilgiris":             "Nilgiris",
+    "tuticorin":                "Thoothukudi",
+    "kanyakumari":              "Kanniyakumari",
+    "chengalpattu":             "Kancheepuram",     # nearest centroid
+    "ranipet":                  "Vellore",           # nearest centroid
+    "tiruppur":                 "Tirupur",
+
+    # Uttar Pradesh
+    "barabanki":                "Bara Banki",
+    "bagpat":                   "Baghpat",
+    "raebareli":                "Rae Bareli",
+    "sant ravidas nagar":       "Sant Ravi Das Nagar",
+    "siddharthnagar":           "Siddharth Nagar",
+    "shrawasti":                "Shravasti",
+    "budaun":                   "Badaun",
+    "kanpur nagar":             "Kanpur",
+    "kheri":                    "Lakhimpur Kheri",
+
+    # Uttarakhand
+    "dehradun":                 "Dehra Dun",
+    "nainital":                 "Naini Tal",
+    "rudraprayag":              "Rudra Prayag",
+
+    # West Bengal
+    "bardhaman":                "Barddhaman",
+    "howrah":                   "Haora",
+    "malda":                    "Maldah",
+    "north dinajpur":           "Uttar Dinajpur",
+    "south dinajpur":           "Dakshin Dinajpur",
+    "sonipat":                  "Sonepat",
+
+    # Other / Union Territories
+    "dadra & nagar haveli":     "Dadra And Nagar Haveli",
+    "lakshadweep":              "Kavaratti",
+    "east sikkim":              "East",
+    "dibang valley":            "Upper Dibang Valley",
+    "bilaspur(cgh)":            "Bilaspur",
 }
 
-# Maps API-returned district names → internal names used in the distance matrix.
-# Keys are lowercase-stripped for case-insensitive matching.
-DISTRICT_NORMALIZE = {
-    "coimbatore":             "Coimbatore",
-    "coimbatore district":    "Coimbatore",
-    "salem":                  "Salem",
-    "erode":                  "Erode",
-    "madurai":                "Madurai",
-    "tiruchirappalli":        "Trichy",
-    "trichy":                 "Trichy",
-    "tiruppur":               "Tirupur",
-    "tirupur":                "Tirupur",
-    "dindigul":               "Dindigul",
-    "namakkal":               "Namakkal",
-    "pollachi":               "Pollachi",
-    "thanjavur":              "Thanjavur",
-    "chennai":                "Chennai",
-    "kancheepuram":           "Chennai",   # nearest supported
-    "chengalpattu":           "Chennai",
-    "tiruvallur":             "Chennai",
-    "the nilgiris":           "Coimbatore",  # nearest supported
-    "nilgiris":               "Coimbatore",
-    "ooty":                   "Coimbatore",
-    "krishnagiri":            "Salem",
-    "dharmapuri":             "Salem",
-    "karur":                  "Trichy",
-    "perambalur":             "Trichy",
-    "ariyalur":               "Trichy",
-}
-
-SUPPORTED_LIST_STR = ", ".join(sorted(SUPPORTED_DISTRICTS))
 
 
-def normalize_district(raw: str):
+def normalize_district(raw: str) -> str:
     """
-    Maps a raw API district name to an internal supported name.
-    Returns the internal name string, or None if not mappable.
+    Corrects known spelling mismatches for centroid lookup.
+    Returns the corrected district name, or raw.title() if no alias exists.
+    Never returns None — all districts are accepted.
     """
     key = raw.strip().lower()
-    # Direct lookup
-    if key in DISTRICT_NORMALIZE:
-        return DISTRICT_NORMALIZE[key]
-    # Check if already a valid supported name (case-insensitive)
-    for supported in SUPPORTED_DISTRICTS:
-        if key == supported.lower():
-            return supported
-    return None
+    if key in DISTRICT_ALIASES:
+        return DISTRICT_ALIASES[key]
+    return raw.strip().title()
+
 
 
 # ── Load pincode → district from local CSV (no network needed) ────────────────
@@ -147,8 +291,12 @@ def pincode_to_district(pincode: str):
 # ── JSON helpers ─────────────────────────────────────────────────────────────
 def load_json(path: str) -> dict:
     if os.path.exists(path):
-        with open(path, "r") as f:
-            return json.load(f)
+        try:
+            with open(path, "r") as f:
+                content = f.read().strip()
+                return json.loads(content) if content else {}
+        except json.JSONDecodeError:
+            return {}  # file is empty or corrupted
     return {}
 
 def save_json(path: str, data: dict):
@@ -185,24 +333,17 @@ def sms_reply():
                 "Example: #641001"
             )
 
-        # District recognised by API but not in our supported list
-        if district is None:
-            return send(
-                f"Your district ({raw_district}) is not yet supported.\n"
-                f"Supported: {SUPPORTED_LIST_STR}.\n"
-                f"Send a nearby district's pincode."
-            )
 
         is_update = phone in users
         users[phone] = {
             "pincode":  pincode,
-            "district": district,   # normalized internal name
+            "district": district,
             "state":    state
         }
         save_json(USERS_FILE, users)
 
-        # Clear any active session on re-register
-        sessions.pop(phone, None)
+        # Start crop session immediately so next reply goes to crop step
+        sessions[phone] = {"step": "crop"}
         save_json(SESSIONS_FILE, sessions)
 
         action = "Updated" if is_update else "Registered"
@@ -341,19 +482,27 @@ def sms_reply():
                 max_distance_km = 200,
                 top_n           = 3
             )
-            top = results[:2]
 
-            msg = (
-                f"Fasal-to-Faida Results\n"
-                f"{crop} | {QTY_LABELS[body]}\n"
-                f"Sell: {month_name} | {district}\n\n"
-            )
-            for i, r in enumerate(top, 1):
-                msg += (
-                    f"{i}. {r['market']}\n"
-                    f"   Rs.{r['predicted_price']:,.0f}/qtl\n"
-                    f"   Transport: Rs.{r['transport_cost']:,.0f}\n"
-                    f"   Net: Rs.{r['net_profit']:,.0f}"
+            if not results:
+                msg = (
+                    f"No markets found for {crop}\n"
+                    f"near {district} in {month_name}.\n\n"
+                    f"Try a different crop or month.\n"
+                    f"MENU to start again."
+                )
+            else:
+                top = results[:2]
+                msg = (
+                    f"Fasal-to-Faida Results\n"
+                    f"{crop} | {QTY_LABELS[body]}\n"
+                    f"Sell: {month_name} | {district}\n\n"
+                )
+                for i, r in enumerate(top, 1):
+                    msg += (
+                        f"{i}. {r['market']}\n"
+                        f"   Rs.{r['predicted_price']:,.0f}/qtl\n"
+                        f"   Transport: Rs.{r['transport_cost']:,.0f}\n"
+                        f"   Net: Rs.{r['net_profit']:,.0f}"
                     f" (Rs.{r['profit_per_kg']:.1f}/kg)\n\n"
                 )
             msg += "MENU for new query\n#PINCODE to change district"
