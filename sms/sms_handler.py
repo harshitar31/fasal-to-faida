@@ -13,9 +13,10 @@ import csv
 
 # ── Set working directory to project root so recommender's relative paths work ─
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.chdir(_PROJECT_ROOT)                          # datasets/, model/ now resolve
+os.chdir(_PROJECT_ROOT)
 sys.path.insert(0, _PROJECT_ROOT)
 from recommender import recommend
+from sms.strings import LANGS, LANG_MENU, STRINGS, t, crop_name
 # ────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
@@ -58,18 +59,22 @@ STATE_CROPS = {
     "West Bengal":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
 }
 
+def get_lang(phone: str, users: dict) -> str:
+    """Return stored language code for this user, defaulting to EN."""
+    return users.get(phone, {}).get("lang", "EN")
+
 def get_crops_for_state(state: str) -> list:
     """Returns available crop list for a state. Falls back to ALL_CROPS."""
     key = state.strip().title()
     return STATE_CROPS.get(key, ALL_CROPS)
 
-def build_crop_menu(crops: list) -> tuple:
+def build_crop_menu(crops: list, lang: str = "EN") -> tuple:
     """
-    Returns (menu_str, crop_map) where crop_map maps reply digit → crop name.
-    Example: '1. Onion\n2. Potato', {'1': 'Onion', '2': 'Potato'}
+    Returns (menu_str, crop_map) where crop_map maps reply digit → crop name (English).
+    Menu lines use translated crop names for the given language.
     """
-    crop_map = {str(i+1): c for i, c in enumerate(crops)}
-    lines = "\n".join(f"{i+1}. {c}" for i, c in enumerate(crops))
+    crop_map = {str(i+1): c for i, c in enumerate(crops)}  # always English keys
+    lines = "\n".join(f"{i+1}. {crop_name(c, lang)}" for i, c in enumerate(crops))
     return lines, crop_map
 
 QTY_MAP = {
@@ -365,156 +370,162 @@ def sms_reply():
     if body.startswith("#"):
         pincode = body[1:].strip()
         raw_district, state, district, err = pincode_to_district(pincode)
+        lang = get_lang(phone, users)
 
         if err in ("bad_pincode", "not_found"):
-            return send(
-                "Invalid pincode.\n"
-                "Send a valid 6-digit pincode.\n"
-                "Example: #641001"
-            )
-
+            return send(t("bad_pincode", lang))
 
         is_update = phone in users
+        existing_lang = users.get(phone, {}).get("lang", lang)
         users[phone] = {
             "pincode":  pincode,
             "district": district,
-            "state":    state
+            "state":    state,
+            "lang":     existing_lang,
         }
         save_json(USERS_FILE, users)
+        lang = existing_lang
 
-        # Build crop menu for this state
         crops = get_crops_for_state(state)
-        crop_menu, crop_map = build_crop_menu(crops)
-
-        # Start crop session immediately so next reply goes to crop step
+        crop_menu, crop_map = build_crop_menu(crops, lang)
         sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
 
-        action = "Updated" if is_update else "Registered"
-        return send(
-            f"Fasal-to-Faida\n"
-            f"{action}!\n"
-            f"District: {district}, {state}\n\n"
-            f"Select crop:\n"
-            f"{crop_menu}\n\n"
-            f"Reply with number."
+        action = t("registered_action", lang).get(
+            "update" if is_update else "new", "Registered"
         )
+        return send(t("registered", lang,
+                      action=action, district=district,
+                      state=state, crop_menu=crop_menu))
+
+    # ── LANG N — switch language anytime ─────────────────────────────────────
+    if body_upper.startswith("LANG "):
+        code     = body_upper.split(None, 1)[1].strip()
+        new_lang = LANGS.get(code)
+        if new_lang:
+            users.setdefault(phone, {})["lang"] = new_lang
+            save_json(USERS_FILE, users)
+            return send(t("lang_switched", new_lang))
+        return send("Send LANG 1 (English), LANG 2 (Hindi), or LANG 3 (Tamil).")
 
     # ── 2. HELP ───────────────────────────────────────────────────────────────
     if body_upper in ["HELP", "?"]:
-        return send(
-            "Fasal-to-Faida Help\n\n"
-            "Register district:\n"
-            "  #PINCODE (e.g. #641001)\n\n"
-            "Get prediction:\n"
-            "  Just text us\n\n"
-            "Restart: MENU or HI"
-        )
+        return send(t("help", get_lang(phone, users)))
 
     # ── 3. RESET / MENU ───────────────────────────────────────────────────────
     if body_upper in ["MENU", "HI", "HELLO", "START", "RESET"]:
+        lang = get_lang(phone, users)
         sessions.pop(phone, None)
         save_json(SESSIONS_FILE, sessions)
-
-        if phone not in users:
-            return send(
-                "Welcome to Fasal-to-Faida!\n\n"
-                "Register your district:\n"
-                "Send #PINCODE\n"
-                "Example: #641001"
-            )
-
+        if phone not in users or not users[phone].get("district"):
+            sessions[phone] = {"step": "lang"}
+            save_json(SESSIONS_FILE, sessions)
+            return send(LANG_MENU)
         district = users[phone]["district"]
         state_u  = users[phone].get("state", "")
-        crops = get_crops_for_state(state_u)
-        crop_menu, crop_map = build_crop_menu(crops)
+        crops    = get_crops_for_state(state_u)
+        crop_menu, crop_map = build_crop_menu(crops, lang)
         sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
-        return send(
-            f"Fasal-to-Faida\n"
-            f"District: {district}\n\n"
-            f"Select crop:\n"
-            f"{crop_menu}\n\n"
-            f"Send #PINCODE to change district."
-        )
+        return send(t("main_menu", lang, district=district, crop_menu=crop_menu))
 
-    # ── 4. NEW USER — not registered, no session ──────────────────────────────
+    # ── 4. NEW USER — no registration, no session ─────────────────────────────
     if phone not in users and phone not in sessions:
-        return send(
-            "Welcome to Fasal-to-Faida!\n\n"
-            "Register your district first.\n"
-            "Send #PINCODE\n"
-            "Example: #641001\n\n"
-            "Send HELP for info."
-        )
+        sessions[phone] = {"step": "lang"}
+        save_json(SESSIONS_FILE, sessions)
+        return send(LANG_MENU)
 
     # ── 5. REGISTERED USER — no active session → start crop menu ─────────────
     if phone not in sessions:
+        lang     = get_lang(phone, users)
         district = users[phone]["district"]
         state_u  = users[phone].get("state", "")
-        crops = get_crops_for_state(state_u)
-        crop_menu, crop_map = build_crop_menu(crops)
+        crops    = get_crops_for_state(state_u)
+        crop_menu, crop_map = build_crop_menu(crops, lang)
         sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
-        return send(
-            f"Fasal-to-Faida | {district}\n\n"
-            f"Select crop:\n"
-            f"{crop_menu}"
-        )
+        return send(t("main_menu", lang, district=district, crop_menu=crop_menu))
 
-    # ── 6. ACTIVE SESSION — menu steps ───────────────────────────────────────
     session = sessions[phone]
     step    = session.get("step", "crop")
+    lang    = get_lang(phone, users)
 
-    # Step: crop
+    # ── LANGUAGE SELECTION — first interaction ────────────────────────────────
+    if step == "lang":
+        chosen = LANGS.get(body)
+        if not chosen:
+            return send(LANG_MENU)
+        lang = chosen
+        users.setdefault(phone, {})["lang"] = lang
+        save_json(USERS_FILE, users)
+        sessions[phone] = {"step": "await_pincode"}
+        save_json(SESSIONS_FILE, sessions)
+        return send(t("lang_set", lang, next=t("register_prompt", lang)))
+
+    # Not yet registered — nudge toward pincode
+    if step == "await_pincode" or not users.get(phone, {}).get("district"):
+        return send(t("register_prompt", lang))
+
+    # ── BACK navigation: '*' goes one step back ───────────────────────────────
+    if body == "*":
+        if step == "qty":
+            session["step"] = "month"
+            sessions[phone] = session
+            save_json(SESSIONS_FILE, sessions)
+            return send(t("crop_ok_ask_month", lang,
+                          crop=crop_name(session.get("crop", ""), lang)))
+        elif step == "month":
+            state_u  = users.get(phone, {}).get("state", "")
+            crops    = get_crops_for_state(state_u)
+            crop_menu, crop_map = build_crop_menu(crops, lang)
+            session["step"]     = "crop"
+            session["crop_map"] = crop_map
+            session.pop("crop", None)
+            sessions[phone] = session
+            save_json(SESSIONS_FILE, sessions)
+            district = users[phone]["district"]
+            return send(t("main_menu", lang, district=district, crop_menu=crop_menu))
+        else:
+            state_u  = users.get(phone, {}).get("state", "")
+            crops    = get_crops_for_state(state_u)
+            crop_menu, crop_map = build_crop_menu(crops, lang)
+            sessions[phone] = {"step": "crop", "crop_map": crop_map}
+            save_json(SESSIONS_FILE, sessions)
+            district = users[phone]["district"]
+            return send(t("main_menu", lang, district=district, crop_menu=crop_menu))
+
     if step == "crop":
         crop_map = session.get("crop_map") or {}
-        # Rebuild map if missing (e.g. old session)
         if not crop_map:
             state_u  = users.get(phone, {}).get("state", "")
             crops    = get_crops_for_state(state_u)
-            _, crop_map = build_crop_menu(crops)
+            _, crop_map = build_crop_menu(crops, lang)
         if body not in crop_map:
-            valid = "/".join(crop_map.keys())
-            menu_str = "\n".join(f"{k}. {v}" for k, v in crop_map.items())
-            return send(f"Reply {valid} for crop:\n{menu_str}")
-        session["crop"] = crop_map[body]
+            valid    = "/".join(crop_map.keys())
+            menu_str = "\n".join(f"{k}. {crop_name(v, lang)}" for k, v in crop_map.items())
+            return send(t("invalid_crop", lang, valid=valid, menu=menu_str))
+        session["crop"] = crop_map[body]   # stored in English
         session["step"] = "month"
         sessions[phone] = session
         save_json(SESSIONS_FILE, sessions)
-        return send(
-            f"Crop: {session['crop']} OK\n\n"
-            f"Which month to sell?\n"
-            f"Reply 1-12\n"
-            f"(1=Jan  6=June  12=Dec)"
-        )
+        return send(t("crop_ok_ask_month", lang,
+                      crop=crop_name(session["crop"], lang)))
 
     # Step: month
     elif step == "month":
         if not body.isdigit() or not (1 <= int(body) <= 12):
-            return send("Reply with month 1-12.\nExample: 3 for March.")
+            return send(t("invalid_month", lang))
         session["month"] = int(body)
         session["step"]  = "qty"
         sessions[phone]  = session
         save_json(SESSIONS_FILE, sessions)
         month_name = datetime.date(2000, session["month"], 1).strftime("%B")
-        return send(
-            f"Month: {month_name} OK\n\n"
-            f"Select quantity:\n"
-            f"1. Below 500 kg\n"
-            f"2. 500-1000 kg\n"
-            f"3. 1000-5000 kg\n"
-            f"4. Above 5000 kg"
-        )
+        return send(t("month_ok_ask_qty", lang, month=month_name))
 
     # Step: qty → run prediction
     elif step == "qty":
         if body not in QTY_MAP:
-            return send(
-                "Reply 1-4:\n"
-                "1.<500kg   2.500-1000kg\n"
-                "3.1-5 ton  4.>5000kg"
-            )
+            return send(t("invalid_qty", lang))
 
         qty        = QTY_MAP[body]
         crop       = session["crop"]
@@ -537,28 +548,23 @@ def sms_reply():
             )
 
             if not results:
-                msg = (
-                    f"No markets found for {crop}\n"
-                    f"near {district} in {month_name}.\n\n"
-                    f"Try a different crop or month.\n"
-                    f"MENU to start again."
-                )
+                msg = t("no_results", lang,
+                        crop=crop_name(crop, lang),
+                        district=district, month=month_name)
             else:
                 top = results[:2]
-                msg = (
-                    f"Fasal-to-Faida Results\n"
-                    f"{crop} | {QTY_LABELS[body]}\n"
-                    f"Sell: {month_name} | {district}\n\n"
-                )
+                msg = t("result_header", lang,
+                        crop=crop_name(crop, lang),
+                        month=month_name, qty=qty,
+                        district=district)
                 for i, r in enumerate(top, 1):
-                    msg += (
-                        f"{i}. {r['market']}\n"
-                        f"   Rs.{r['predicted_price']:,.0f}/qtl\n"
-                        f"   Transport: Rs.{r['transport_cost']:,.0f}\n"
-                        f"   Net: Rs.{r['net_profit']:,.0f}"
-                    f" (Rs.{r['profit_per_kg']:.1f}/kg)\n\n"
-                )
-            msg += "MENU for new query\n#PINCODE to change district"
+                    msg += t("result_item", lang,
+                             rank=i,
+                             market=r["market"],
+                             dist=round(r.get("distance_km", 0)),
+                             price=f"{r['predicted_price']:,.0f}",
+                             profit=f"{r['net_profit']:,.0f}")
+            msg += "\nMENU"
 
         except Exception as e:
             msg = (
