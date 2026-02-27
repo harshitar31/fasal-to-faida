@@ -24,14 +24,54 @@ app = Flask(__name__)
 USERS_FILE    = "registered_users.json"
 SESSIONS_FILE = "sessions.json"
 
-# ── Constants ────────────────────────────────────────────────────────────────
-CROPS = {
-    "1": "Tomato",
-    "2": "Onion",
-    "3": "Potato",
-    "4": "Wheat",
-    "5": "Rice"
+# All 5 crops in display order (used as fallback)
+ALL_CROPS = ["Tomato", "Onion", "Potato", "Wheat", "Rice"]
+
+# Per-state crop availability — derived from clean_df.parquet
+# Only crops with actual training data for that state are shown
+STATE_CROPS = {
+    "Andhra Pradesh":    ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Assam":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Bihar":             ["Onion", "Potato", "Tomato", "Wheat"],
+    "Chandigarh":        ["Onion", "Potato", "Tomato"],
+    "Chhattisgarh":      ["Onion", "Potato", "Tomato", "Wheat"],
+    "Delhi":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Goa":               ["Potato"],
+    "Gujarat":           ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Haryana":           ["Onion", "Potato", "Tomato", "Wheat"],
+    "Himachal Pradesh":  ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Jammu And Kashmir": ["Onion", "Potato", "Tomato"],
+    "Karnataka":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Kerala":            ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Madhya Pradesh":    ["Onion", "Potato", "Tomato", "Wheat"],
+    "Maharashtra":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Manipur":           ["Onion", "Potato", "Rice"],
+    "Meghalaya":         ["Onion", "Potato", "Tomato"],
+    "Nagaland":          ["Onion", "Potato", "Tomato"],
+    "Odisha":            ["Onion", "Potato", "Rice", "Tomato"],
+    "Punjab":            ["Onion", "Potato", "Tomato", "Wheat"],
+    "Rajasthan":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Tamil Nadu":        ["Onion", "Potato"],
+    "Tripura":           ["Onion"],
+    "Uttar Pradesh":     ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Uttarakhand":       ["Onion", "Potato", "Rice", "Wheat"],
+    "West Bengal":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
 }
+
+def get_crops_for_state(state: str) -> list:
+    """Returns available crop list for a state. Falls back to ALL_CROPS."""
+    key = state.strip().title()
+    return STATE_CROPS.get(key, ALL_CROPS)
+
+def build_crop_menu(crops: list) -> tuple:
+    """
+    Returns (menu_str, crop_map) where crop_map maps reply digit → crop name.
+    Example: '1. Onion\n2. Potato', {'1': 'Onion', '2': 'Potato'}
+    """
+    crop_map = {str(i+1): c for i, c in enumerate(crops)}
+    lines = "\n".join(f"{i+1}. {c}" for i, c in enumerate(crops))
+    return lines, crop_map
+
 QTY_MAP = {
     "1": 250,
     "2": 750,
@@ -342,8 +382,12 @@ def sms_reply():
         }
         save_json(USERS_FILE, users)
 
+        # Build crop menu for this state
+        crops = get_crops_for_state(state)
+        crop_menu, crop_map = build_crop_menu(crops)
+
         # Start crop session immediately so next reply goes to crop step
-        sessions[phone] = {"step": "crop"}
+        sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
 
         action = "Updated" if is_update else "Registered"
@@ -352,8 +396,7 @@ def sms_reply():
             f"{action}!\n"
             f"District: {district}, {state}\n\n"
             f"Select crop:\n"
-            f"1. Tomato\n2. Onion\n3. Potato\n"
-            f"4. Wheat\n5. Rice\n\n"
+            f"{crop_menu}\n\n"
             f"Reply with number."
         )
 
@@ -382,12 +425,16 @@ def sms_reply():
             )
 
         district = users[phone]["district"]
+        state_u  = users[phone].get("state", "")
+        crops = get_crops_for_state(state_u)
+        crop_menu, crop_map = build_crop_menu(crops)
+        sessions[phone] = {"step": "crop", "crop_map": crop_map}
+        save_json(SESSIONS_FILE, sessions)
         return send(
             f"Fasal-to-Faida\n"
             f"District: {district}\n\n"
             f"Select crop:\n"
-            f"1. Tomato\n2. Onion\n3. Potato\n"
-            f"4. Wheat\n5. Rice\n\n"
+            f"{crop_menu}\n\n"
             f"Send #PINCODE to change district."
         )
 
@@ -404,13 +451,15 @@ def sms_reply():
     # ── 5. REGISTERED USER — no active session → start crop menu ─────────────
     if phone not in sessions:
         district = users[phone]["district"]
-        sessions[phone] = {"step": "crop"}
+        state_u  = users[phone].get("state", "")
+        crops = get_crops_for_state(state_u)
+        crop_menu, crop_map = build_crop_menu(crops)
+        sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
         return send(
             f"Fasal-to-Faida | {district}\n\n"
             f"Select crop:\n"
-            f"1. Tomato\n2. Onion\n3. Potato\n"
-            f"4. Wheat\n5. Rice"
+            f"{crop_menu}"
         )
 
     # ── 6. ACTIVE SESSION — menu steps ───────────────────────────────────────
@@ -419,13 +468,17 @@ def sms_reply():
 
     # Step: crop
     if step == "crop":
-        if body not in CROPS:
-            return send(
-                "Reply 1-5 for crop:\n"
-                "1.Tomato 2.Onion 3.Potato\n"
-                "4.Wheat  5.Rice"
-            )
-        session["crop"] = CROPS[body]
+        crop_map = session.get("crop_map") or {}
+        # Rebuild map if missing (e.g. old session)
+        if not crop_map:
+            state_u  = users.get(phone, {}).get("state", "")
+            crops    = get_crops_for_state(state_u)
+            _, crop_map = build_crop_menu(crops)
+        if body not in crop_map:
+            valid = "/".join(crop_map.keys())
+            menu_str = "\n".join(f"{k}. {v}" for k, v in crop_map.items())
+            return send(f"Reply {valid} for crop:\n{menu_str}")
+        session["crop"] = crop_map[body]
         session["step"] = "month"
         sessions[phone] = session
         save_json(SESSIONS_FILE, sessions)

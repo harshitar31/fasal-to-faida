@@ -14,22 +14,13 @@ import pandas as pd
 import numpy as np
 import joblib
 
-# ── Load artifacts once at import time ───────────────────
-_model    = None
-_encoders = None
-_features = None
-_df       = None
-
-def _load():
-    """Lazy load — only loads from disk once."""
-    global _model, _encoders, _features, _df
-    if _model is None:
-        print("📦 Loading model artifacts...")
-        _model    = joblib.load('model/price_model.joblib')
-        _encoders = joblib.load('model/encoders.joblib')
-        _features = joblib.load('model/features.joblib')
-        _df       = pd.read_parquet('model/clean_df.parquet')
-        print("   ✅ Model loaded.")
+# ── Load artifacts at module import — guaranteed ready before first request ───
+print("📦 Loading model artifacts...")
+_model    = joblib.load('model/price_model.joblib')
+_encoders = joblib.load('model/encoders.joblib')
+_features = joblib.load('model/features.joblib')
+_df       = pd.read_parquet('model/clean_df.parquet')
+print("   ✅ Model loaded.")
 
 
 # ── Helpers ───────────────────────────────────────────────
@@ -113,8 +104,6 @@ def predict_price(district, commodity, state,
     float : predicted price in ₹/quintal
     None  : if prediction not possible
     """
-    _load()
-
     # Use district name as market if not given
     if market is None:
         market = district
