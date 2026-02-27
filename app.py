@@ -1,16 +1,20 @@
 # =============================================================================
 # app.py — Fasal-to-Faida  |  Bech Sahi, Kamaao Zyada
-# Agrikon-inspired UI — full-width horizontal layout
+# Agrikon-inspired UI — integrated with live XGBoost price model
 #
-# pip install streamlit pandas numpy plotly joblib xgboost scikit-learn
+# pip install streamlit pandas numpy matplotlib joblib xgboost scikit-learn
 # streamlit run app.py
 # =============================================================================
 
+import io
 import random
 import numpy as np
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 st.set_page_config(
     page_title="Fasal-to-Faida | Market Intelligence",
@@ -27,10 +31,8 @@ GREEN_MID   = "#2D6A4F"
 GREEN_LIGHT = "#52B788"
 AMBER       = "#E8A020"
 AMBER_DARK  = "#C8590A"
-AMBER_LIGHT = "#F5C842"
 BG_WHITE    = "#FFFFFF"
 BG_OFFWHITE = "#F7F4EF"
-BG_WARM     = "#FDF6E3"
 TEXT_DARK   = "#1A1A1A"
 TEXT_MUTED  = "#666666"
 BORDER      = "#E0DAD0"
@@ -39,6 +41,81 @@ MONTHS = ["January","February","March","April","May","June",
           "July","August","September","October","November","December"]
 CROPS  = ["Tomato","Onion","Potato","Wheat","Rice"]
 
+INDIAN_STATES = [
+    "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
+    "Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka",
+    "Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram",
+    "Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
+    "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
+    "Delhi","Jammu & Kashmir","Ladakh","Puducherry",
+]
+
+@st.cache_data(show_spinner=False)
+def load_state_districts():
+    """Build state→[districts] mapping from the pincode CSV."""
+    import os
+    csv_path = os.path.join(os.path.dirname(__file__), "datasets", "india pincode final.csv")
+    try:
+        df = pd.read_csv(csv_path, usecols=["Districtname", "statename"], dtype=str)
+        df = df.dropna(subset=["Districtname", "statename"])
+        # CSV state names are ALL CAPS — title-case them for matching
+        df["state_tc"] = df["statename"].str.strip().str.title()
+        # Special corrections (title-case mangles some names)
+        corrections = {
+            "Jammu & Kashmir": "Jammu & Kashmir",
+            "Andaman & Nicobar Islands": "Andaman & Nicobar Islands",
+            "Dadra & Nagar Haveli And Daman & Diu": "Dadra & Nagar Haveli and Daman & Diu",
+        }
+        for wrong, right in corrections.items():
+            df.loc[df["state_tc"] == wrong, "state_tc"] = right
+        mapping = (
+            df.groupby("state_tc")["Districtname"]
+            .apply(lambda s: sorted(s.str.strip().unique().tolist()))
+            .to_dict()
+        )
+        return mapping
+    except Exception:
+        return {}
+
+STATE_DISTRICTS = load_state_districts()
+
+# — keep a fallback so the app never breaks even if CSV is missing —
+_FALLBACK_DISTRICTS = {
+    "Andhra Pradesh": ["Anantapur","Chittoor","East Godavari","Guntur","Krishna","Kurnool","Nellore","Prakasam","Srikakulam","Visakhapatnam","Vizianagaram","West Godavari","YSR Kadapa"],
+    "Arunachal Pradesh": ["Anjaw","Changlang","East Kameng","East Siang","Kurung Kumey","Lohit","Longding","Lower Dibang Valley","Lower Subansiri","Namsai","Papum Pare","Tawang","Tirap","Upper Dibang Valley","Upper Siang","Upper Subansiri","West Kameng","West Siang"],
+    "Assam": ["Baksa","Barpeta","Biswanath","Bongaigaon","Cachar","Charaideo","Chirang","Darrang","Dhemaji","Dhubri","Dibrugarh","Dima Hasao","Goalpara","Golaghat","Hailakandi","Hojai","Jorhat","Kamrup","Kamrup Metropolitan","Karbi Anglong","Karimganj","Kokrajhar","Lakhimpur","Majuli","Morigaon","Nagaon","Nalbari","Sivasagar","Sonitpur","South Salmara-Mankachar","Tinsukia","Udalguri","West Karbi Anglong"],
+    "Bihar": ["Araria","Arwal","Aurangabad","Banka","Begusarai","Bhagalpur","Bhojpur","Buxar","Darbhanga","East Champaran","Gaya","Gopalganj","Jamui","Jehanabad","Kaimur","Katihar","Khagaria","Kishanganj","Lakhisarai","Madhepura","Madhubani","Munger","Muzaffarpur","Nalanda","Nawada","Patna","Purnia","Rohtas","Saharsa","Samastipur","Saran","Sheikhpura","Sheohar","Sitamarhi","Siwan","Supaul","Vaishali","West Champaran"],
+    "Chhattisgarh": ["Balod","Baloda Bazar","Balrampur","Bastar","Bemetara","Bijapur","Bilaspur","Dantewada","Dhamtari","Durg","Gariaband","Janjgir-Champa","Jashpur","Kabirdham","Kanker","Kondagaon","Korba","Korea","Mahasamund","Mungeli","Narayanpur","Raigarh","Raipur","Rajnandgaon","Sukma","Surajpur","Surguja"],
+    "Goa": ["North Goa","South Goa"],
+    "Gujarat": ["Ahmedabad","Amreli","Anand","Aravalli","Banaskantha","Bharuch","Bhavnagar","Botad","Chhota Udaipur","Dahod","Dang","Devbhoomi Dwarka","Gandhinagar","Gir Somnath","Jamnagar","Junagadh","Kheda","Kutch","Mahisagar","Mehsana","Morbi","Narmada","Navsari","Panchmahal","Patan","Porbandar","Rajkot","Sabarkantha","Surat","Surendranagar","Tapi","Vadodara","Valsad"],
+    "Haryana": ["Ambala","Bhiwani","Charkhi Dadri","Faridabad","Fatehabad","Gurugram","Hisar","Jhajjar","Jind","Kaithal","Karnal","Kurukshetra","Mahendragarh","Nuh","Palwal","Panchkula","Panipat","Rewari","Rohtak","Sirsa","Sonipat","Yamunanagar"],
+    "Himachal Pradesh": ["Bilaspur","Chamba","Hamirpur","Kangra","Kinnaur","Kullu","Lahaul and Spiti","Mandi","Shimla","Sirmaur","Solan","Una"],
+    "Jharkhand": ["Bokaro","Chatra","Deoghar","Dhanbad","Dumka","East Singhbhum","Garhwa","Giridih","Godda","Gumla","Hazaribagh","Jamtara","Khunti","Koderma","Latehar","Lohardaga","Pakur","Palamu","Ramgarh","Ranchi","Sahibganj","Seraikela Kharsawan","Simdega","West Singhbhum"],
+    "Karnataka": ["Bagalkot","Ballari","Belagavi","Bengaluru Rural","Bengaluru Urban","Bidar","Chamarajanagar","Chikkaballapur","Chikkamagaluru","Chitradurga","Dakshina Kannada","Davanagere","Dharwad","Gadag","Hassan","Haveri","Kalaburagi","Kodagu","Kolar","Koppal","Mandya","Mysuru","Raichur","Ramanagara","Shivamogga","Tumakuru","Udupi","Uttara Kannada","Vijayapura","Yadgir"],
+    "Kerala": ["Alappuzha","Ernakulam","Idukki","Kannur","Kasaragod","Kollam","Kottayam","Kozhikode","Malappuram","Palakkad","Pathanamthitta","Thiruvananthapuram","Thrissur","Wayanad"],
+    "Madhya Pradesh": ["Agar Malwa","Alirajpur","Anuppur","Ashoknagar","Balaghat","Barwani","Betul","Bhind","Bhopal","Burhanpur","Chhatarpur","Chhindwara","Damoh","Datia","Dewas","Dhar","Dindori","Guna","Gwalior","Harda","Hoshangabad","Indore","Jabalpur","Jhabua","Katni","Khandwa","Khargone","Mandla","Mandsaur","Morena","Narsinghpur","Neemuch","Panna","Raisen","Rajgarh","Ratlam","Rewa","Sagar","Satna","Sehore","Seoni","Shahdol","Shajapur","Sheopur","Shivpuri","Sidhi","Singrauli","Tikamgarh","Ujjain","Umaria","Vidisha"],
+    "Maharashtra": ["Ahmednagar","Akola","Amravati","Aurangabad","Beed","Bhandara","Buldhana","Chandrapur","Dhule","Gadchiroli","Gondia","Hingoli","Jalgaon","Jalna","Kolhapur","Latur","Mumbai City","Mumbai Suburban","Nagpur","Nanded","Nandurbar","Nashik","Osmanabad","Palghar","Parbhani","Pune","Raigad","Ratnagiri","Sangli","Satara","Sindhudurg","Solapur","Thane","Wardha","Washim","Yavatmal"],
+    "Manipur": ["Bishnupur","Chandel","Churachandpur","Imphal East","Imphal West","Senapati","Tamenglong","Thoubal","Ukhrul"],
+    "Meghalaya": ["East Garo Hills","East Jaintia Hills","East Khasi Hills","North Garo Hills","Ri Bhoi","South Garo Hills","South West Garo Hills","South West Khasi Hills","West Garo Hills","West Jaintia Hills","West Khasi Hills"],
+    "Mizoram": ["Aizawl","Champhai","Kolasib","Lawngtlai","Lunglei","Mamit","Saiha","Serchhip"],
+    "Nagaland": ["Dimapur","Kiphire","Kohima","Longleng","Mokokchung","Mon","Peren","Phek","Tuensang","Wokha","Zunheboto"],
+    "Odisha": ["Angul","Balangir","Balasore","Bargarh","Bhadrak","Boudh","Cuttack","Deogarh","Dhenkanal","Gajapati","Ganjam","Jagatsinghpur","Jajpur","Jharsuguda","Kalahandi","Kandhamal","Kendrapara","Kendujhar","Khordha","Koraput","Malkangiri","Mayurbhanj","Nabarangpur","Nayagarh","Nuapada","Puri","Rayagada","Sambalpur","Sonepur","Sundargarh"],
+    "Punjab": ["Amritsar","Barnala","Bathinda","Faridkot","Fatehgarh Sahib","Fazilka","Ferozepur","Gurdaspur","Hoshiarpur","Jalandhar","Kapurthala","Ludhiana","Mansa","Moga","Muktsar","Nawanshahr","Pathankot","Patiala","Rupnagar","SAS Nagar","Sangrur","Tarn Taran"],
+    "Rajasthan": ["Ajmer","Alwar","Banswara","Baran","Barmer","Bharatpur","Bhilwara","Bikaner","Bundi","Chittorgarh","Churu","Dausa","Dholpur","Dungarpur","Hanumangarh","Jaipur","Jaisalmer","Jalore","Jhalawar","Jhunjhunu","Jodhpur","Karauli","Kota","Nagaur","Pali","Pratapgarh","Rajsamand","Sawai Madhopur","Sikar","Sirohi","Sri Ganganagar","Tonk","Udaipur"],
+    "Sikkim": ["East Sikkim","North Sikkim","South Sikkim","West Sikkim"],
+    "Tamil Nadu": ["Ariyalur","Chennai","Coimbatore","Cuddalore","Dharmapuri","Dindigul","Erode","Kallakurichi","Kanchipuram","Kanyakumari","Karur","Krishnagiri","Madurai","Nagapattinam","Namakkal","Nilgiris","Perambalur","Pudukkottai","Ramanathapuram","Ranipet","Salem","Sivaganga","Tenkasi","Thanjavur","Theni","Thoothukudi","Tiruchirappalli","Tirunelveli","Tirupathur","Tiruppur","Tiruvallur","Tiruvannamalai","Tiruvarur","Vellore","Viluppuram","Virudhunagar"],
+    "Telangana": ["Adilabad","Bhadradri Kothagudem","Hyderabad","Jagtial","Jangaon","Jayashankar Bhupalpally","Jogulamba Gadwal","Kamareddy","Karimnagar","Khammam","Kumuram Bheem","Mahabubabad","Mahabubnagar","Mancherial","Medak","Medchal-Malkajgiri","Mulugu","Nagarkurnool","Nalgonda","Narayanpet","Nirmal","Nizamabad","Peddapalli","Rajanna Sircilla","Rangareddy","Sangareddy","Siddipet","Suryapet","Vikarabad","Wanaparthy","Warangal Rural","Warangal Urban","Yadadri Bhuvanagiri"],
+    "Tripura": ["Dhalai","Gomati","Khowai","North Tripura","Sepahijala","South Tripura","Unakoti","West Tripura"],
+    "Uttar Pradesh": ["Agra","Aligarh","Allahabad","Ambedkar Nagar","Amethi","Amroha","Auraiya","Ayodhya","Azamgarh","Baghpat","Bahraich","Ballia","Balrampur","Banda","Barabanki","Bareilly","Basti","Bijnor","Budaun","Bulandshahr","Chandauli","Chitrakoot","Deoria","Etah","Etawah","Farrukhabad","Fatehpur","Firozabad","Gautam Buddha Nagar","Ghaziabad","Ghazipur","Gonda","Gorakhpur","Hamirpur","Hapur","Hardoi","Hathras","Jalaun","Jaunpur","Jhansi","Kannauj","Kanpur Dehat","Kanpur Nagar","Kasganj","Kaushambi","Kushinagar","Lakhimpur Kheri","Lalitpur","Lucknow","Maharajganj","Mahoba","Mainpuri","Mathura","Mau","Meerut","Mirzapur","Moradabad","Muzaffarnagar","Pilibhit","Pratapgarh","Prayagraj","Rae Bareli","Rampur","Saharanpur","Sambhal","Sant Kabir Nagar","Shahjahanpur","Shamli","Shravasti","Siddharthnagar","Sitapur","Sonbhadra","Sultanpur","Unnao","Varanasi"],
+    "Uttarakhand": ["Almora","Bageshwar","Chamoli","Champawat","Dehradun","Haridwar","Nainital","Pauri Garhwal","Pithoragarh","Rudraprayag","Tehri Garhwal","Udham Singh Nagar","Uttarkashi"],
+    "West Bengal": ["Alipurduar","Bankura","Birbhum","Cooch Behar","Dakshin Dinajpur","Darjeeling","Hooghly","Howrah","Jalpaiguri","Jhargram","Kalimpong","Kolkata","Malda","Murshidabad","Nadia","North 24 Parganas","Paschim Bardhaman","Paschim Medinipur","Purba Bardhaman","Purba Medinipur","Purulia","South 24 Parganas","Uttar Dinajpur"],
+    "Delhi": ["Central Delhi","East Delhi","New Delhi","North Delhi","North East Delhi","North West Delhi","Shahdara","South Delhi","South East Delhi","South West Delhi","West Delhi"],
+    "Jammu & Kashmir": ["Anantnag","Bandipora","Baramulla","Budgam","Doda","Ganderbal","Jammu","Kathua","Kishtwar","Kulgam","Kupwara","Poonch","Pulwama","Rajouri","Ramban","Reasi","Samba","Shopian","Srinagar","Udhampur"],
+    "Ladakh": ["Kargil","Leh"],
+    "Puducherry": ["Karaikal","Mahe","Puducherry","Yanam"],
+}
+
+# Fallback dummy markets (used only when model can't find results)
 DUMMY_MARKETS = [
     ("Azadpur",    "Delhi",       "North West Delhi"),
     ("Lasalgaon",  "Maharashtra", "Nashik"),
@@ -48,37 +125,26 @@ DUMMY_MARKETS = [
 ]
 
 # =============================================================================
-# CSS — full Agrikon-style
+# CSS
 # =============================================================================
 def inject_css():
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=Nunito+Sans:wght@300;400;500;600;700&display=swap');
 
-    /* ── Base reset ───────────────────────────────────────────── */
     html, body, .stApp {{
         background-color: {BG_OFFWHITE};
         font-family: 'Nunito Sans', sans-serif;
         color: {TEXT_DARK};
     }}
-    .block-container {{
-        padding: 0 !important;
-        max-width: 100% !important;
-    }}
+    .block-container {{ padding: 0 !important; max-width: 100% !important; }}
     [data-testid="stSidebar"] {{ display: none; }}
     header[data-testid="stHeader"] {{ background: transparent; }}
     #MainMenu, footer, header {{ visibility: hidden; }}
 
-    /* ─────────────────────────────────────────────────────────── */
-    /* STREAMLIT WIDGET TEXT — always dark (labels float above     */
-    /* custom green divs in the DOM, so they are always on the     */
-    /* app's light background in the stacking context)             */
-    /* ─────────────────────────────────────────────────────────── */
-    /* Labels */
-    .stTextInput  > label,
-    .stNumberInput > label,
-    .stSelectbox  > label,
-    .stMultiSelect > label {{
+    /* ── Widget labels & inputs — always dark ─────────────────── */
+    .stTextInput > label, .stNumberInput > label,
+    .stSelectbox > label, .stMultiSelect > label, .stSlider > label {{
         color: {TEXT_DARK} !important;
         font-family: 'Nunito Sans', sans-serif !important;
         font-size: 0.78rem !important;
@@ -86,9 +152,7 @@ def inject_css():
         letter-spacing: 0.05em !important;
         text-transform: uppercase !important;
     }}
-    /* Text inputs */
-    .stTextInput input,
-    .stNumberInput input {{
+    .stTextInput input, .stNumberInput input {{
         color: {TEXT_DARK} !important;
         background: #FFFFFF !important;
         border: 1px solid {BORDER} !important;
@@ -96,11 +160,9 @@ def inject_css():
         font-size: 0.9rem !important;
         border-radius: 4px !important;
     }}
-    .stTextInput input::placeholder,
-    .stNumberInput input::placeholder {{
+    .stTextInput input::placeholder, .stNumberInput input::placeholder {{
         color: #AAAAAA !important;
     }}
-    /* Selectbox */
     .stSelectbox [data-baseweb="select"] > div {{
         background: #FFFFFF !important;
         border: 1px solid {BORDER} !important;
@@ -111,661 +173,439 @@ def inject_css():
         color: {TEXT_DARK} !important;
         background: transparent !important;
     }}
-    /* Dropdown list options */
-    [data-baseweb="popover"] li,
-    [data-baseweb="menu"] li {{
-        color: {TEXT_DARK} !important;
-        background: white !important;
+    [data-baseweb="popover"] li, [data-baseweb="menu"] li {{
+        color: {TEXT_DARK} !important; background: white !important;
     }}
-    [data-baseweb="popover"] li:hover,
-    [data-baseweb="menu"]  li:hover {{
+    [data-baseweb="popover"] li:hover, [data-baseweb="menu"] li:hover {{
         background: {BG_OFFWHITE} !important;
     }}
-    /* Number input stepper buttons */
     .stNumberInput button {{
-        color: {TEXT_DARK} !important;
-        background: {BG_OFFWHITE} !important;
+        color: {TEXT_DARK} !important; background: {BG_OFFWHITE} !important;
         border-color: {BORDER} !important;
     }}
-    /* stMarkdown generic text */
-    .stMarkdown, .stMarkdown p, .stMarkdown span {{
-        color: {TEXT_DARK};
-    }}
+    .stMarkdown, .stMarkdown p, .stMarkdown span {{ color: {TEXT_DARK}; }}
 
-    /* ── Top nav bar ──────────────────────────────────────────── */
+    /* ── Nav ───────────────────────────────────────────────────── */
     .nav-bar {{
-        background: {GREEN};
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 48px;
-        height: 64px;
-        position: sticky;
-        top: 0;
-        z-index: 100;
+        background: {GREEN}; display: flex; align-items: center;
+        justify-content: space-between; padding: 0 48px; height: 64px;
+        position: sticky; top: 0; z-index: 100;
         box-shadow: 0 2px 12px rgba(0,0,0,0.15);
     }}
     .nav-logo {{
         font-family: 'Playfair Display', Georgia, serif;
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: white;
-        letter-spacing: 0.02em;
+        font-size: 1.5rem; font-weight: 700; color: white;
     }}
     .nav-logo span {{ color: {AMBER}; }}
-    .nav-links {{
-        display: flex;
-        gap: 32px;
-        align-items: center;
-    }}
+    .nav-links {{ display: flex; gap: 32px; align-items: center; }}
     .nav-links a {{
-        color: rgba(255,255,255,0.85);
-        font-size: 0.88rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-decoration: none;
-        text-transform: uppercase;
+        color: rgba(255,255,255,0.85); font-size: 0.88rem; font-weight: 600;
+        letter-spacing: 0.04em; text-decoration: none; text-transform: uppercase;
     }}
     .nav-cta {{
-        background: {AMBER};
-        color: {GREEN} !important;
-        padding: 8px 20px;
-        border-radius: 3px;
-        font-weight: 700 !important;
+        background: {AMBER}; color: {GREEN} !important;
+        padding: 8px 20px; border-radius: 3px; font-weight: 700 !important;
     }}
 
-    /* ── Hero section ─────────────────────────────────────────── */
+    /* ── Hero ──────────────────────────────────────────────────── */
     .hero-section {{
-        position: relative;
-        width: 100%;
-        height: 520px;
-        overflow: hidden;
-        background: {GREEN};
+        position: relative; width: 100%; height: 480px;
+        overflow: hidden; background: {GREEN};
     }}
     .hero-bg {{
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
         background-image: url('https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=1600&q=80&fit=crop');
-        background-size: cover;
-        background-position: center 40%;
-        opacity: 0.55;
+        background-size: cover; background-position: center 40%; opacity: 0.5;
     }}
     .hero-content {{
-        position: relative;
-        z-index: 2;
-        padding: 80px 80px;
-        max-width: 620px;
+        position: relative; z-index: 2; padding: 72px 80px; max-width: 620px;
     }}
     .hero-eyebrow {{
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: {AMBER};
-        margin-bottom: 14px;
+        font-size: 0.78rem; font-weight: 700; letter-spacing: 0.14em;
+        text-transform: uppercase; color: {AMBER}; margin-bottom: 14px;
     }}
     .hero-title {{
         font-family: 'Playfair Display', Georgia, serif;
-        font-size: 3.6rem;
-        font-weight: 900;
-        color: white;
-        line-height: 1.12;
-        margin-bottom: 18px;
+        font-size: 3.4rem; font-weight: 900; color: white;
+        line-height: 1.12; margin-bottom: 18px;
         text-shadow: 0 2px 20px rgba(0,0,0,0.3);
     }}
-    .hero-title em {{
-        color: {AMBER};
-        font-style: normal;
-    }}
+    .hero-title em {{ color: {AMBER}; font-style: normal; }}
     .hero-desc {{
-        font-size: 1.05rem;
-        color: rgba(255,255,255,0.88);
-        line-height: 1.7;
-        margin-bottom: 32px;
-        max-width: 460px;
+        font-size: 1.0rem; color: rgba(255,255,255,0.88);
+        line-height: 1.7; margin-bottom: 24px; max-width: 460px;
     }}
-    .hero-btn {{
-        display: inline-block;
-        background: {AMBER};
-        color: {GREEN};
-        font-family: 'Nunito Sans', sans-serif;
-        font-size: 0.88rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        padding: 14px 32px;
-        border-radius: 3px;
-        cursor: pointer;
-        border: none;
-        text-decoration: none;
+    .hero-cta-btn {{
+        display: inline-block; background: {AMBER}; color: {GREEN} !important;
+        font-family: 'Nunito Sans', sans-serif; font-weight: 700;
+        font-size: 0.95rem; letter-spacing: 0.06em; text-transform: uppercase;
+        text-decoration: none; padding: 14px 32px; border-radius: 4px;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.25); transition: background 0.2s;
     }}
+    .hero-cta-btn:hover {{ background: {AMBER_DARK} !important; color: white !important; }}
 
-    /* ── Amber strip + floating cards ─────────────────────────── */
-    .amber-strip {{
-        background: {AMBER};
-        padding: 0 48px;
-        display: flex;
-        justify-content: center;
-        gap: 24px;
-        padding-top: 0;
-        padding-bottom: 0;
-        min-height: 18px;
-    }}
-
-    .float-card-wrap {{
-        background: {BG_OFFWHITE};
-        padding: 0 48px 0;
-    }}
-    .float-cards {{
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 24px;
-        transform: translateY(-60px);
-        margin-bottom: -40px;
-    }}
-    .float-card {{
-        background: white;
-        border-radius: 6px;
-        overflow: hidden;
-        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-        transition: transform 0.2s;
-    }}
-    .float-card img {{
-        width: 100%;
-        height: 180px;
-        object-fit: cover;
-    }}
-    .float-card-label {{
-        padding: 14px 18px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        color: {TEXT_DARK};
-        text-align: center;
-        letter-spacing: 0.02em;
-    }}
-
-    /* ── Section: split content ───────────────────────────────── */
-    .section-wrap {{
-        padding: 60px 64px;
-    }}
-    .section-wrap.offwhite {{ background: {BG_OFFWHITE}; }}
-    .section-wrap.white    {{ background: {BG_WHITE};    }}
-    .section-wrap.warm     {{ background: {BG_WARM};     }}
-    .section-wrap.green    {{ background: {GREEN};       }}
-
+    /* ── Section headings ──────────────────────────────────────── */
     .section-eyebrow {{
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: {GREEN_LIGHT};
-        margin-bottom: 10px;
-        text-align: center;
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em;
+        text-transform: uppercase; color: {GREEN_LIGHT};
+        margin-bottom: 10px; text-align: center;
     }}
     .section-eyebrow.dark {{ color: {AMBER}; }}
     .section-title {{
         font-family: 'Playfair Display', Georgia, serif;
-        font-size: 2.4rem;
-        font-weight: 700;
-        color: {GREEN};
-        line-height: 1.2;
-        margin-bottom: 16px;
-        text-align: center;
+        font-size: 2.2rem; font-weight: 700; color: {GREEN};
+        line-height: 1.2; margin-bottom: 12px; text-align: center;
     }}
     .section-title.white {{ color: white; }}
     .section-sub {{
-        font-size: 1.0rem;
-        color: {TEXT_MUTED};
-        text-align: center;
-        max-width: 580px;
-        margin: 0 auto 44px;
-        line-height: 1.7;
+        font-size: 1.0rem; color: {TEXT_MUTED}; text-align: center;
+        max-width: 560px; margin: 0 auto 32px; line-height: 1.7;
     }}
     .section-sub.white {{ color: rgba(255,255,255,0.75); }}
 
-    /* ── Feature row cards ───────────────────────────────────── */
-    .feat-grid {{
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 24px;
-    }}
+    /* ── Feature cards ─────────────────────────────────────────── */
+    .feat-grid {{ display: grid; grid-template-columns: repeat(4,1fr); gap: 24px; }}
     .feat-card {{
-        background: white;
-        border-radius: 6px;
-        overflow: hidden;
-        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
-        position: relative;
+        background: white; border-radius: 6px; overflow: hidden;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08); position: relative;
     }}
-    .feat-card img {{
-        width: 100%;
-        height: 160px;
-        object-fit: cover;
-    }}
+    .feat-card img {{ width: 100%; height: 150px; object-fit: cover; }}
     .feat-icon-circle {{
-        position: absolute;
-        top: 136px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 46px;
-        height: 46px;
-        border-radius: 50%;
-        background: {GREEN};
-        border: 3px solid white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        z-index: 2;
+        position: absolute; top: 127px; left: 50%; transform: translateX(-50%);
+        width: 44px; height: 44px; border-radius: 50%; background: {GREEN};
+        border: 3px solid white; display: flex; align-items: center;
+        justify-content: center; font-size: 17px; z-index: 2;
     }}
-    .feat-card-body {{
-        padding: 34px 18px 22px;
-        text-align: center;
-    }}
+    .feat-card-body {{ padding: 32px 18px 20px; text-align: center; }}
     .feat-card-title {{
         font-family: 'Playfair Display', Georgia, serif;
-        font-size: 1.05rem;
-        font-weight: 700;
-        color: {GREEN};
-        margin-bottom: 8px;
+        font-size: 1.0rem; font-weight: 700; color: {GREEN}; margin-bottom: 7px;
     }}
-    .feat-card-desc {{
-        font-size: 0.85rem;
-        color: {TEXT_MUTED};
-        line-height: 1.6;
-    }}
+    .feat-card-desc {{ font-size: 0.84rem; color: {TEXT_MUTED}; line-height: 1.6; }}
 
-    /* ── Split section: images + text ─────────────────────────── */
-    .split-section {{
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 60px;
-        align-items: center;
-        padding: 70px 80px;
-        background: {BG_WHITE};
-    }}
-    .split-imgs {{
-        position: relative;
-        height: 420px;
-    }}
-    .split-img-main {{
-        position: absolute;
-        top: 0; left: 0;
-        width: 78%;
-        height: 88%;
-        object-fit: cover;
-        border-radius: 6px;
-        box-shadow: 0 8px 30px rgba(0,0,0,0.15);
-    }}
-    .split-img-accent {{
-        position: absolute;
-        bottom: 0; right: 0;
-        width: 54%;
-        height: 55%;
-        object-fit: cover;
-        border-radius: 6px;
-        box-shadow: 0 8px 30px rgba(0,0,0,0.15);
-        border: 4px solid white;
-    }}
-    .split-badge {{
-        position: absolute;
-        top: 50%;
-        left: -18px;
-        transform: translateY(-50%);
-        background: {AMBER};
-        color: {GREEN};
-        border-radius: 50%;
-        width: 80px;
-        height: 80px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        font-weight: 900;
-        font-size: 1.1rem;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-        z-index: 10;
-    }}
-    .split-badge span {{ font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; }}
-    .split-text {{ }}
-    .split-tagline {{
-        font-size: 0.75rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: {AMBER_DARK};
-        margin-bottom: 10px;
-    }}
-    .split-title {{
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: {GREEN};
-        line-height: 1.2;
-        margin-bottom: 14px;
-    }}
-    .split-highlight {{
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: {AMBER_DARK};
-        margin-bottom: 18px;
-        line-height: 1.6;
-    }}
-    .split-body {{
-        font-size: 0.92rem;
-        color: {TEXT_MUTED};
-        line-height: 1.75;
-        margin-bottom: 28px;
-    }}
-    .icon-badge-row {{
-        display: flex;
-        gap: 32px;
-        margin-bottom: 28px;
-    }}
-    .icon-badge {{
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        color: {GREEN};
-    }}
-    .icon-badge .ib-circle {{
-        background: {BG_OFFWHITE};
-        border: 2px solid {BORDER};
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 16px;
-        flex-shrink: 0;
-    }}
-    .btn-primary {{
-        background: {GREEN};
-        color: white;
-        font-family: 'Nunito Sans', sans-serif;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        padding: 12px 26px;
-        border-radius: 3px;
-        border: none;
-        cursor: pointer;
-        margin-right: 12px;
-    }}
-    .btn-outline {{
-        background: transparent;
-        color: {GREEN};
-        font-family: 'Nunito Sans', sans-serif;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        padding: 11px 26px;
-        border-radius: 3px;
-        border: 2px solid {GREEN};
-        cursor: pointer;
-    }}
-
-    /* ── Input form section ───────────────────────────────────── */
-    .form-section {{
-        background: {GREEN};
-        padding: 56px 80px;
-    }}
-    .form-grid {{
-        display: grid;
-        grid-template-columns: repeat(5, 1fr) auto;
-        gap: 16px;
-        align-items: end;
-        margin-top: 32px;
-    }}
-    .form-field label {{
-        display: block;
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: rgba(255,255,255,0.65);
-        margin-bottom: 7px;
-    }}
-    .form-field input,
-    .form-field select {{
-        width: 100%;
-        background: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.25);
-        border-radius: 4px;
-        color: white;
-        padding: 10px 14px;
-        font-family: 'Nunito Sans', sans-serif;
-        font-size: 0.9rem;
-        outline: none;
-        box-sizing: border-box;
-    }}
-    .form-field select option {{ background: {GREEN}; color: white; }}
-
+    /* ── Form section (green bg) ───────────────────────────────── */
     div.stButton > button {{
-        background: {AMBER} !important;
-        color: {GREEN} !important;
-        font-family: 'Nunito Sans', sans-serif !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.06em !important;
-        text-transform: uppercase !important;
-        border: none !important;
-        border-radius: 4px !important;
-        padding: 0.65rem 2rem !important;
-        font-size: 0.88rem !important;
-        width: 100% !important;
-        margin-top: 24px;
+        background: {AMBER} !important; color: {GREEN} !important;
+        font-family: 'Nunito Sans', sans-serif !important; font-weight: 700 !important;
+        letter-spacing: 0.06em !important; text-transform: uppercase !important;
+        border: none !important; border-radius: 4px !important;
+        padding: 0.65rem 2rem !important; font-size: 0.88rem !important; width: 100% !important;
     }}
     div.stButton > button:hover {{
-        background: {AMBER_DARK} !important;
-        color: white !important;
+        background: {AMBER_DARK} !important; color: white !important;
     }}
 
-    /* ── Results section ──────────────────────────────────────── */
-    .results-header {{
-        background: {BG_OFFWHITE};
-        padding: 48px 80px 16px;
-    }}
-    .results-body {{
-        background: {BG_OFFWHITE};
-        padding: 0 80px 60px;
-    }}
+    /* ── Results ───────────────────────────────────────────────── */
+    .results-header {{ background: {BG_OFFWHITE}; padding: 40px 80px 12px; }}
+    .results-body   {{ background: {BG_OFFWHITE}; padding: 0 80px 60px; }}
 
-    /* ── Metric card ──────────────────────────────────────────── */
+    /* ── Metric card ───────────────────────────────────────────── */
     .mc {{
-        background: white;
-        border-top: 4px solid {GREEN};
-        border-radius: 4px;
-        padding: 22px 20px 18px;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        background: white; border-top: 4px solid {GREEN}; border-radius: 4px;
+        padding: 20px 18px 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.06);
     }}
     .mc.amber {{ border-top-color: {AMBER_DARK}; }}
+    .mc.red   {{ border-top-color: #E53E3E; }}
     .mc-lbl {{
-        font-size: 0.68rem;
-        font-weight: 700;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: {TEXT_MUTED};
-        margin-bottom: 10px;
+        font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em;
+        text-transform: uppercase; color: {TEXT_MUTED}; margin-bottom: 8px;
     }}
     .mc-val {{
         font-family: 'Playfair Display', Georgia, serif;
-        font-size: 2.1rem;
-        font-weight: 600;
-        color: {GREEN};
-        line-height: 1;
+        font-size: 1.9rem; font-weight: 600; color: {GREEN}; line-height: 1;
     }}
     .mc.amber .mc-val {{ color: {AMBER_DARK}; }}
-    .mc-unit {{
-        font-size: 0.72rem;
-        color: {TEXT_MUTED};
-        margin-top: 6px;
-    }}
+    .mc.red   .mc-val {{ color: #E53E3E; }}
+    .mc-unit {{ font-size: 0.7rem; color: {TEXT_MUTED}; margin-top: 5px; }}
 
-    /* ── Section divider label ────────────────────────────────── */
+    /* ── Section divider label ─────────────────────────────────── */
     .sec-lbl {{
-        font-size: 0.7rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: {TEXT_MUTED};
-        border-bottom: 1px solid {BORDER};
-        padding-bottom: 7px;
-        margin: 36px 0 14px;
+        font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
+        text-transform: uppercase; color: {TEXT_MUTED};
+        border-bottom: 1px solid {BORDER}; padding-bottom: 6px; margin: 32px 0 14px;
     }}
 
-    /* ── Result recommendation box ────────────────────────────── */
+    /* ── Recommendation box ────────────────────────────────────── */
     .reco-box {{
-        background: {GREEN};
-        color: white;
-        border-radius: 4px;
-        padding: 24px 32px;
-        margin-top: 16px;
-        font-size: 1.0rem;
-        line-height: 1.7;
+        background: {GREEN}; color: white; border-radius: 4px;
+        padding: 22px 28px; margin-top: 14px; font-size: 1.0rem; line-height: 1.7;
     }}
-    .reco-box strong {{ font-weight: 700; }}
+    .reco-box strong {{ font-weight: 700; color: {AMBER}; }}
     .reco-lbl {{
-        font-size: 0.68rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        opacity: 0.6;
-        margin-bottom: 8px;
+        font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase;
+        opacity: 0.6; margin-bottom: 8px;
     }}
 
-    /* ── Footer ───────────────────────────────────────────────── */
+    /* ── Spinner / info ────────────────────────────────────────── */
+    .loading-box {{
+        background: white; border-radius: 6px; padding: 32px;
+        text-align: center; font-size: 1.1rem; color: {TEXT_MUTED};
+        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }}
+
+    /* ── Footer ────────────────────────────────────────────────── */
     .site-footer {{
-        background: {GREEN};
-        color: rgba(255,255,255,0.6);
-        text-align: center;
-        padding: 24px 48px;
-        font-size: 0.8rem;
-        letter-spacing: 0.03em;
+        background: {GREEN}; color: rgba(255,255,255,0.6);
+        text-align: center; padding: 22px 48px; font-size: 0.8rem;
     }}
     .site-footer strong {{ color: white; }}
 
-    /* ── Streamlit table overrides ────────────────────────────── */
+    /* ── Table ─────────────────────────────────────────────────── */
     div[data-testid="stDataFrame"] {{
-        border: 1px solid {BORDER} !important;
-        border-radius: 4px;
+        border: 1px solid {BORDER} !important; border-radius: 4px;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 
 # =============================================================================
-# DUMMY DATA
+# DUMMY DATA (fallback only)
 # =============================================================================
 def make_dummy_df(commodity="Onion", quantity_kg=500):
     random.seed(42)
     rows = []
     for market, state, district in DUMMY_MARKETS:
-        dist_km       = random.randint(20, 300)
+        dist_km       = random.randint(20, 150)
         price_per_q   = random.randint(1200, 3500)
-        revenue       = (quantity_kg / 100) * price_per_q
-        transport     = round(dist_km * 2.8 + random.randint(200, 600), 0)
-        commission    = round(revenue * 0.025, 0)
-        misc          = round(random.randint(100, 400), 0)
-        net_profit    = round(revenue - transport - commission - misc, 0)
+        qty_q         = quantity_kg / 100
+        gross_revenue = round(price_per_q * qty_q, 2)
+        transport     = round(dist_km * 15 + 300, 2)
+        mandi_fee     = round(gross_revenue * 0.02, 2)
+        misc_costs    = round(qty_q * 10, 2)
+        total_costs   = round(transport + mandi_fee + misc_costs, 2)
+        net_profit    = round(gross_revenue - total_costs, 2)
         profit_per_kg = round(net_profit / quantity_kg, 2)
         rows.append({
-            "Market": market, "State": state, "District": district,
-            "Distance_km": dist_km, "Predicted_Price": price_per_q,
-            "Transport_Cost": transport, "Mandi_Commission": commission,
-            "Misc_Cost": misc, "Net_Profit": net_profit,
-            "Profit_per_kg": profit_per_kg,
+            "market": market, "state": state, "district": district,
+            "distance_km": dist_km, "predicted_price": price_per_q,
+            "gross_revenue": gross_revenue, "transport_cost": transport,
+            "mandi_fee": mandi_fee, "misc_costs": misc_costs,
+            "total_costs": total_costs, "net_profit": net_profit,
+            "profit_per_kg": profit_per_kg,
         })
-    return pd.DataFrame(rows).sort_values("Net_Profit", ascending=False).reset_index(drop=True)
+    return sorted(rows, key=lambda x: x["net_profit"], reverse=True)
 
 
-def fetch_recommendations(commodity, quantity_kg, district, month_num, year):
+# =============================================================================
+# MODEL CALL
+# =============================================================================
+@st.cache_data(show_spinner=False)
+def get_recommendations(commodity, quantity_kg, district, state, month_num, year, max_dist):
+    """Call real model; fall back to dummy on any error."""
     try:
         from recommender import recommend
-        df = recommend(commodity, quantity_kg, district, month_num, year)
-        if df is None or df.empty:
-            return pd.DataFrame()
-        return df
-    except Exception:
-        pass
-    return make_dummy_df(commodity, quantity_kg)
+        results = recommend(
+            commodity        = commodity,
+            quantity_kg      = quantity_kg,
+            farmer_district  = district,
+            farmer_state     = state,
+            target_month     = month_num,
+            target_year      = year,
+            max_distance_km  = max_dist,
+            top_n            = 8,
+        )
+        if results and len(results) > 0:
+            return results, False   # (data, is_dummy)
+    except Exception as e:
+        st.session_state["model_error"] = str(e)
+    return make_dummy_df(commodity, quantity_kg), True
 
 
 # =============================================================================
 # CHARTS
 # =============================================================================
-def profit_bar_chart(df):
-    sdf = df.sort_values("Net_Profit", ascending=True)
-    fig = go.Figure(go.Bar(
-        x=sdf["Net_Profit"], y=sdf["Market"],
-        orientation="h",
-        marker_color=[AMBER_DARK if i == len(sdf)-1 else GREEN_LIGHT for i in range(len(sdf))],
-        text=[f"Rs. {v:,.0f}" for v in sdf["Net_Profit"]],
-        textposition="outside",
-        textfont=dict(size=11, family="Nunito Sans"),
+def _fig_to_img(fig):
+    """Convert a matplotlib Figure to a PNG bytes buffer."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", dpi=130)
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+def profit_bar_chart(records):
+    """Horizontal bar — Net Profit per market, best highlighted (Matplotlib)."""
+    pairs = sorted(zip(
+        [r["net_profit"] for r in records],
+        [r["market"]    for r in records],
     ))
-    fig.update_layout(
-        xaxis=dict(showgrid=False, zeroline=False, tickformat=",", tickfont=dict(size=10)),
-        yaxis=dict(showgrid=False, tickfont=dict(size=11)),
-        plot_bgcolor="white", paper_bgcolor="white",
-        showlegend=False,
-        margin=dict(t=10, b=10, l=10, r=80),
-        font=dict(family="Nunito Sans, sans-serif"),
-        height=240,
-    )
-    return fig
+    profits_s = [p for p, _ in pairs]
+    markets_s = [m for _, m in pairs]
+    colors_s  = [AMBER_DARK if m == records[0]["market"] else GREEN_LIGHT
+                 for m in markets_s]
+
+    fig, ax = plt.subplots(figsize=(7, max(2.5, len(markets_s) * 0.45)))
+    bars = ax.barh(markets_s, profits_s, color=colors_s, edgecolor="none", height=0.55)
+    for bar, val in zip(bars, profits_s):
+        ax.text(bar.get_width() + max(profits_s) * 0.01, bar.get_y() + bar.get_height() / 2,
+                f"Rs. {val:,.0f}", va="center", ha="left", fontsize=8, color=TEXT_DARK)
+    ax.set_xlabel("Net Profit (Rs.)", fontsize=8, color=TEXT_MUTED)
+    ax.tick_params(axis="both", labelsize=8, colors=TEXT_DARK)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x/1000:.0f}k"))
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.set_facecolor("white")
+    fig.patch.set_facecolor("white")
+    fig.tight_layout()
+    return _fig_to_img(fig)
 
 
-def cost_pie_chart(row, quantity_kg):
-    net    = max(row["Net_Profit"], 0)
-    vals   = [net, row["Transport_Cost"], row["Mandi_Commission"], row["Misc_Cost"]]
-    labels = ["Net Profit", "Transport", "Commission", "Misc"]
+def cost_waterfall_chart(best):
+    """Waterfall: Gross Revenue → costs → Net Profit (Matplotlib)."""
+    labels  = ["Gross\nRevenue", "Transport", "Mandi Fee", "Misc", "Net Profit"]
+    amounts = [
+        best["gross_revenue"],
+        -best["transport_cost"],
+        -best["mandi_fee"],
+        -best["misc_costs"],
+        best["net_profit"],
+    ]
+    bottoms, running = [], 0
+    for i, a in enumerate(amounts):
+        if i == 0 or i == len(amounts) - 1:
+            bottoms.append(0)
+        else:
+            bottoms.append(running)
+        if i < len(amounts) - 1:
+            running += a
+
+    bar_colors = []
+    for i, a in enumerate(amounts):
+        if i == 0:
+            bar_colors.append(GREEN_LIGHT)
+        elif i == len(amounts) - 1:
+            bar_colors.append(GREEN)
+        else:
+            bar_colors.append(AMBER_DARK if a < 0 else GREEN_LIGHT)
+
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    bars = ax.bar(labels, [abs(a) for a in amounts], bottom=bottoms,
+                  color=bar_colors, edgecolor="none", width=0.5)
+    for bar, val in zip(bars, amounts):
+        sign = "-" if val < 0 else ""
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                bar.get_y() + bar.get_height() + max(abs(a) for a in amounts) * 0.01,
+                f"{sign}Rs.{abs(val):,.0f}", ha="center", va="bottom", fontsize=7, color=TEXT_DARK)
+    ax.set_ylabel("Amount (Rs.)", fontsize=8, color=TEXT_MUTED)
+    ax.tick_params(axis="both", labelsize=8, colors=TEXT_DARK)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x/1000:.0f}k"))
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.set_facecolor("white")
+    fig.patch.set_facecolor("white")
+    fig.tight_layout()
+    return _fig_to_img(fig)
+
+
+def cost_pie_chart(best):
+    """Donut: how the gross revenue is split (Matplotlib)."""
+    labels = ["Net Profit", "Transport", "Mandi Fee", "Misc"]
+    values = [max(best["net_profit"], 0),
+              best["transport_cost"], best["mandi_fee"], best["misc_costs"]]
     colors = [GREEN, AMBER_DARK, GREEN_LIGHT, "#C5BFB0"]
-    fig = go.Figure(go.Pie(
-        labels=labels, values=vals, hole=0.44,
-        marker_colors=colors,
-        textinfo="percent",
-        hovertemplate="%{label}: Rs. %{value:,.0f}<extra></extra>",
-        textfont=dict(size=11),
-    ))
-    fig.update_layout(
-        plot_bgcolor="white", paper_bgcolor="white",
-        legend=dict(orientation="v", font=dict(size=10), x=0.72, y=0.5),
-        margin=dict(t=10, b=10, l=0, r=0),
-        font=dict(family="Nunito Sans, sans-serif"),
-        height=240,
+    fig, ax = plt.subplots(figsize=(4.5, 3))
+    wedges, texts, autotexts = ax.pie(
+        values, labels=None, colors=colors, autopct="%1.0f%%",
+        pctdistance=0.75, startangle=90,
+        wedgeprops=dict(width=0.55, edgecolor="white", linewidth=2),
     )
-    return fig
+    for at in autotexts:
+        at.set_fontsize(8)
+        at.set_color("white")
+    ax.legend(labels, loc="center right", bbox_to_anchor=(1.35, 0.5),
+              fontsize=8, frameon=False)
+    fig.patch.set_facecolor("white")
+    fig.tight_layout()
+    return _fig_to_img(fig)
 
 
-def style_table(df):
-    d = df[["Market","State","Distance_km","Predicted_Price",
-            "Transport_Cost","Net_Profit","Profit_per_kg"]].copy()
-    d.columns = ["Market","State","Dist. (km)","Price (Rs./q)",
-                 "Transport (Rs.)","Net Profit (Rs.)","Profit/kg (Rs.)"]
+def price_comparison_chart(records):
+    """Bar — Predicted price per quintal across markets (Matplotlib)."""
+    markets = [r["market"] for r in records]
+    prices  = [r["predicted_price"] for r in records]
+    colors  = [AMBER if i == 0 else GREEN_MID for i in range(len(records))]
+
+    fig, ax = plt.subplots(figsize=(7, 3))
+    bars = ax.bar(markets, prices, color=colors, edgecolor="none", width=0.55)
+    for bar, val in zip(bars, prices):
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + max(prices) * 0.01,
+                f"Rs.{val:,.0f}", ha="center", va="bottom", fontsize=7, color=TEXT_DARK)
+    ax.set_ylabel("Price (Rs./quintal)", fontsize=8, color=TEXT_MUTED)
+    ax.tick_params(axis="x", labelsize=7, rotation=20, colors=TEXT_DARK)
+    ax.tick_params(axis="y", labelsize=8, colors=TEXT_DARK)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.set_facecolor("white")
+    fig.patch.set_facecolor("white")
+    fig.tight_layout()
+    return _fig_to_img(fig)
+
+
+def distance_vs_profit_scatter(records):
+    """Scatter: distance vs net profit — bubble sized by price (Matplotlib)."""
+    fig, ax = plt.subplots(figsize=(7, 3.5))
+    for i, r in enumerate(records):
+        is_best = (i == 0)
+        size = max(r["predicted_price"] / 30, 80)
+        color = AMBER_DARK if is_best else GREEN_LIGHT
+        ax.scatter(r["distance_km"], r["net_profit"], s=size, color=color,
+                   edgecolors="white", linewidths=1.5, zorder=3, alpha=0.9)
+        ax.annotate(r["market"],
+                    xy=(r["distance_km"], r["net_profit"]),
+                    xytext=(0, 8), textcoords="offset points",
+                    ha="center", fontsize=7, color=TEXT_DARK)
+    ax.set_xlabel("Distance from your district (km)", fontsize=8, color=TEXT_MUTED)
+    ax.set_ylabel("Net Profit (Rs.)", fontsize=8, color=TEXT_MUTED)
+    ax.tick_params(labelsize=8, colors=TEXT_DARK)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.set_facecolor("#FAFAF8")
+    fig.patch.set_facecolor("white")
+    fig.tight_layout()
+    return _fig_to_img(fig)
+
+
+# =============================================================================
+# STYLED TABLE
+# =============================================================================
+def style_table(records):
+    rows = []
+    for r in records:
+        rows.append({
+            "Market":           r["market"],
+            "State":            r["state"],
+            "Dist. (km)":       r["distance_km"],
+            "Price (Rs./q)":    r["predicted_price"],
+            "Transport (Rs.)":  r["transport_cost"],
+            "Net Profit (Rs.)": r["net_profit"],
+            "Profit/kg (Rs.)":  r["profit_per_kg"],
+        })
+    df = pd.DataFrame(rows)
+
     def hi(row):
         s = f"background:{GREEN};color:white;font-weight:700;" if row.name == 0 else ""
-        return [s]*len(row)
+        return [s] * len(row)
+
     return (
-        d.style.apply(hi, axis=1)
+        df.style.apply(hi, axis=1)
         .format({
             "Price (Rs./q)":    "Rs. {:,.0f}",
             "Transport (Rs.)":  "Rs. {:,.0f}",
             "Net Profit (Rs.)": "Rs. {:,.0f}",
             "Profit/kg (Rs.)":  "Rs. {:.2f}",
+            "Dist. (km)":       "{:.0f}",
         })
-        .set_properties(**{"text-align":"right","font-size":"13px"})
+        .set_properties(**{"text-align": "right", "font-size": "13px"})
         .set_table_styles([
-            {"selector":"th","props":f"background:{BG_OFFWHITE};color:{TEXT_MUTED};font-size:11px;letter-spacing:0.05em;text-transform:uppercase;text-align:center;padding:10px 14px;"},
-            {"selector":"td","props":"padding:9px 14px;"},
+            {"selector": "th", "props": f"background:{BG_OFFWHITE};color:{TEXT_MUTED};"
+                                         "font-size:11px;letter-spacing:0.05em;"
+                                         "text-transform:uppercase;text-align:center;padding:10px 14px;"},
+            {"selector": "td", "props": "padding:9px 14px;"},
         ])
     )
 
 
 # =============================================================================
-# STATIC SECTIONS (always visible)
+# STATIC SECTIONS
 # =============================================================================
 def render_navbar():
     st.markdown(f"""
@@ -786,121 +626,59 @@ def render_hero():
     <div class="hero-section">
         <div class="hero-bg"></div>
         <div class="hero-content">
-            <div class="hero-eyebrow">Welcome to Fasal-to-Faida</div>
+            <div class="hero-eyebrow">AI-Powered Market Intelligence</div>
             <div class="hero-title">Smarter Selling<br>for Every<br><em>Indian Farmer</em></div>
             <div class="hero-desc">
-                Find out where to sell your crop, how much transport will cost,
-                and exactly how much you will earn — before you load the truck.
+                Our XGBoost model predicts crop prices at every mandi near you,
+                then calculates real transport costs and net profit — so you always
+                know where to sell before you load the truck.
             </div>
-            <div class="hero-btn">Check Your Market</div>
+            <a href="#check-your-best-mandi" class="hero-cta-btn">🌾 Check My Mandi</a>
         </div>
     </div>
-    <div style="background:{AMBER};height:22px;width:100%;"></div>
-    """, unsafe_allow_html=True)
-
-
-def render_float_cards():
-    st.markdown(f"""
-    <div class="float-card-wrap">
-    <div class="float-cards">
-        <div class="float-card">
-            <img src="https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=600&q=80&fit=crop" />
-            <div class="float-card-label">Live Price Prediction</div>
-        </div>
-        <div class="float-card">
-            <img src="https://images.unsplash.com/photo-1560472355-536de3962603?w=600&q=80&fit=crop" />
-            <div class="float-card-label">Best Mandi Near You</div>
-        </div>
-        <div class="float-card">
-            <img src="https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?w=600&q=80&fit=crop" />
-            <div class="float-card-label">Real Profit Estimate</div>
-        </div>
-    </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_split_section():
-    st.markdown(f"""
-    <div class="split-section">
-        <div class="split-imgs">
-            <img class="split-img-main"
-                 src="https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=800&q=80&fit=crop" />
-            <img class="split-img-accent"
-                 src="https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=500&q=80&fit=crop" />
-            <div class="split-badge">
-                <div>7,000+</div>
-                <span>MANDIS</span>
-            </div>
-        </div>
-        <div class="split-text">
-            <div class="split-tagline">Welcome to Fasal-to-Faida</div>
-            <div class="split-title">Better Information<br>for Better Returns</div>
-            <div class="split-highlight">
-                Covering all 28 states — powered by 2 years of Agmarknet government data.
-            </div>
-            <div class="split-body">
-                Farmers across India lose significant income every year not because of bad crops,
-                but because of information they never had. Fasal-to-Faida changes that — giving
-                every farmer, from any district, the same market intelligence that traders have
-                always had. Enter your pincode, pick your crop, get your answer.
-            </div>
-            <div class="icon-badge-row">
-                <div class="icon-badge">
-                    <div class="ib-circle">&#9675;</div>
-                    Pan-India Coverage
-                </div>
-                <div class="icon-badge">
-                    <div class="ib-circle">&#9634;</div>
-                    SMS Access
-                </div>
-            </div>
-            <button class="btn-primary">How It Works</button>
-            <button class="btn-outline">SMS Access</button>
-        </div>
-    </div>
+    <div style="background:{AMBER};height:5px;width:100%;"></div>
     """, unsafe_allow_html=True)
 
 
 def render_features_section():
     st.markdown(f"""
-    <div class="section-wrap white">
+    <div style="background:{BG_WHITE};padding:56px 72px;">
         <div class="section-eyebrow">What We Offer</div>
-        <div class="section-title">Everything a Farmer Needs to Decide</div>
+        <div class="section-title">Four Numbers That Change Everything</div>
         <div class="section-sub">
-            One platform. Four core answers. Available on web and by SMS from any phone.
+            One query. Real XGBoost predictions. Ranked by actual net profit after all costs.
         </div>
         <div class="feat-grid">
             <div class="feat-card">
                 <img src="https://images.unsplash.com/photo-1607457561901-e6ec3a6d16cf?w=500&q=80&fit=crop" />
-                <div class="feat-icon-circle">&#9670;</div>
+                <div class="feat-icon-circle">📈</div>
                 <div class="feat-card-body">
                     <div class="feat-card-title">Price Prediction</div>
-                    <div class="feat-card-desc">XGBoost model trained on 2 years of daily mandi prices predicts what your crop will sell for.</div>
+                    <div class="feat-card-desc">XGBoost model trained on 2 years of Agmarknet data predicts the expected modal price for your crop.</div>
                 </div>
             </div>
             <div class="feat-card">
                 <img src="https://images.unsplash.com/photo-1543076447-215ad9ba6923?w=500&q=80&fit=crop" />
-                <div class="feat-icon-circle">&#9632;</div>
+                <div class="feat-icon-circle">🏆</div>
                 <div class="feat-card-body">
-                    <div class="feat-card-title">Best Mandi Nearby</div>
-                    <div class="feat-card-desc">We rank all nearby mandis by net profit — not just price — so you know the real best option.</div>
+                    <div class="feat-card-title">Best Mandi Rank</div>
+                    <div class="feat-card-desc">We evaluate every reachable mandi and rank them by net profit — not just advertised price.</div>
                 </div>
             </div>
             <div class="feat-card">
                 <img src="https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?w=500&q=80&fit=crop" />
-                <div class="feat-icon-circle">&#9679;</div>
+                <div class="feat-icon-circle">🚚</div>
                 <div class="feat-card-body">
-                    <div class="feat-card-title">Transport Calculator</div>
-                    <div class="feat-card-desc">Distance from your district to each mandi, factored with truck tier rates and load size.</div>
+                    <div class="feat-card-title">Transport Cost</div>
+                    <div class="feat-card-desc">Haversine distance × 1.3 road correction, then tiered truck rates based on your load size.</div>
                 </div>
             </div>
             <div class="feat-card">
                 <img src="https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&q=80&fit=crop" />
-                <div class="feat-icon-circle">&#9650;</div>
+                <div class="feat-icon-circle">💰</div>
                 <div class="feat-card-body">
-                    <div class="feat-card-title">SMS Access</div>
-                    <div class="feat-card-desc">No smartphone needed. Send your pincode and crop by SMS. Get your results back instantly.</div>
+                    <div class="feat-card-title">Net Profit Estimate</div>
+                    <div class="feat-card-desc">Gross revenue minus transport, 2% mandi commission, and misc costs — your real take-home.</div>
                 </div>
             </div>
         </div>
@@ -909,32 +687,53 @@ def render_features_section():
 
 
 # =============================================================================
-# FORM SECTION (Streamlit widgets, styled green)
+# FORM SECTION
 # =============================================================================
 def render_form_section():
-    st.markdown(f"""
-    <div style="background:{GREEN};padding:48px 80px 0 80px;">
-        <div class="section-eyebrow dark">Find Your Market</div>
-        <div class="section-title white">Check Your Best Mandi</div>
-        <div class="section-sub white">Enter your details below — results appear instantly on this page.</div>
-    </div>
-    <div class="form-inputs-wrap" style="background:{GREEN};padding:0 80px 48px 80px;">
+    # Anchor target so the hero CTA can link here
+    st.markdown("""
+    <div id="check-your-best-mandi" style="scroll-margin-top:70px;"></div>
     """, unsafe_allow_html=True)
 
-    c1, c2, c3, c4, c5, c6 = st.columns([2, 2, 1.5, 2, 1.5, 1.5])
+    st.markdown(f"""
+    <div style="background:{GREEN};padding:60px 100px 0 100px;">
+        <div class="section-eyebrow dark">Find Your Market</div>
+        <div class="section-title white" style="font-size:2.8rem;">Check Your Best Mandi</div>
+        <div class="section-sub white" style="font-size:1.05rem;max-width:680px;">
+            Enter your crop details below — our XGBoost model instantly evaluates
+            every reachable mandi and ranks them by real net profit after all costs.
+        </div>
+    </div>
+    <div style="background:{GREEN};padding:16px 100px 56px 100px;">
+    """, unsafe_allow_html=True)
+
+    # Row 1: name + state + district + crop  (state first, district second)
+    c1, c2, c3, c4 = st.columns([2.2, 2.2, 2.2, 2])
     with c1:
-        farmer_name = st.text_input("Farmer Name", placeholder="e.g. Ramesh Patil", key="fname")
+        farmer_name = st.text_input("Farmer Name (optional)", placeholder="e.g. Ramesh Patil", key="fname")
     with c2:
-        district = st.text_input("Your District", placeholder="e.g. Nashik", key="dist")
+        state = st.selectbox("Your State *", INDIAN_STATES,
+                             index=INDIAN_STATES.index("Maharashtra"), key="state")
     with c3:
-        commodity = st.selectbox("Crop", CROPS, index=1, key="crop")
+        district_options = STATE_DISTRICTS.get(state) or _FALLBACK_DISTRICTS.get(state, ["— select district —"])
+        district = st.selectbox("Your District *", district_options, index=0, key="dist")
     with c4:
-        quantity_kg = st.number_input("Quantity (kg)", min_value=10, value=500, step=10, key="qty")
+        commodity = st.selectbox("Crop *", CROPS, index=1, key="crop")
+
+    # Row 2
+    c5, c6, c7, c8, c9 = st.columns([2, 2, 2, 2.5, 1.8])
     with c5:
-        month_name = st.selectbox("Month", MONTHS, index=pd.Timestamp.now().month - 1, key="mon")
+        quantity_kg = st.number_input("Quantity (kg) *", min_value=10, value=500, step=50, key="qty")
     with c6:
+        month_name = st.selectbox("Month to Sell *", MONTHS,
+                                  index=pd.Timestamp.now().month - 1, key="mon")
+    with c7:
+        year = st.selectbox("Year", [2025, 2026], index=0, key="yr")
+    with c8:
+        max_dist = st.slider("Max Distance (km)", 50, 500, 150, step=25, key="maxd")
+    with c9:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        submitted = st.button("Find Best Mandi", key="submit")
+        submitted = st.button("🔍 Find Best Mandi", key="submit")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -942,90 +741,196 @@ def render_form_section():
         "farmer_name": farmer_name.strip() if farmer_name else "",
         "commodity":   commodity,
         "quantity_kg": quantity_kg,
-        "district":    district.strip() if district else "",
+        "district":    district if district else "",
+        "state":       state,
         "month_num":   MONTHS.index(month_name) + 1,
         "month_name":  month_name,
-        "year":        2025,
+        "year":        year,
+        "max_dist":    max_dist,
         "submitted":   submitted,
     }
 
 
 # =============================================================================
-# RESULTS
+# METRIC CARD HTML
+# =============================================================================
+def mc(label, value, unit="", variant=""):
+    cls = f"mc {variant}".strip()
+    return f"""<div class="{cls}">
+        <div class="mc-lbl">{label}</div>
+        <div class="mc-val">{value}</div>
+        <div class="mc-unit">{unit}</div>
+    </div>"""
+
+
+# =============================================================================
+# RESULTS SECTION
 # =============================================================================
 def render_results(inputs):
-    df = fetch_recommendations(
-        inputs["commodity"], inputs["quantity_kg"],
-        inputs["district"], inputs["month_num"], inputs["year"],
-    )
+    district = inputs["district"]
+    if not district:
+        st.warning("⚠️ Please enter your district to find markets.")
+        return
 
-    if df.empty:
+    # ── Loading spinner ────────────────────────────────────────────
+    with st.spinner(f"🔍 Evaluating mandis for {inputs['commodity']} near {district}…"):
+        records, is_dummy = get_recommendations(
+            inputs["commodity"], inputs["quantity_kg"],
+            district, inputs["state"],
+            inputs["month_num"], inputs["year"],
+            inputs["max_dist"],
+        )
+
+    if not records:
         st.markdown(f"""
         <div style="background:{BG_OFFWHITE};padding:40px 80px;">
             <div style="background:white;border-radius:4px;padding:32px;text-align:center;color:{TEXT_MUTED};">
-                No markets found for this combination. Try a different crop or district.
+                No markets found within {inputs['max_dist']} km. Try increasing the distance or check the district name.
             </div>
         </div>
         """, unsafe_allow_html=True)
         return
 
-    best = df.iloc[0]
+    best = records[0]
     name_str = f"Namaste {inputs['farmer_name']} — " if inputs["farmer_name"] else ""
 
+    # ── Dummy data notice ──────────────────────────────────────────
+    if is_dummy:
+        st.warning("ℹ️ Using illustrative data — district not found in our database. Results are for demonstration only.")
+
+    # ── Results header ─────────────────────────────────────────────
     st.markdown(f"""
     <div class="results-header">
-        <div class="section-eyebrow">Market Analysis</div>
-        <div class="section-title" style="text-align:left;">{name_str}Results for {inputs['commodity']}</div>
-        <div style="font-size:0.88rem;color:{TEXT_MUTED};margin-top:4px;">
-            {inputs['quantity_kg']} kg &nbsp;·&nbsp; {inputs['district'] or 'Your district'} &nbsp;·&nbsp; {inputs['month_name']} {inputs['year']}
+        <div class="section-eyebrow">Market Intelligence Report</div>
+        <div class="section-title" style="text-align:left;font-size:1.9rem;">
+            {name_str}Best Mandis for <em style="color:{AMBER_DARK}">{inputs['commodity']}</em>
+        </div>
+        <div style="font-size:0.85rem;color:{TEXT_MUTED};margin-top:4px;">
+            {inputs['quantity_kg']} kg &nbsp;·&nbsp; {district}, {inputs['state']}
+            &nbsp;·&nbsp; {inputs['month_name']} {inputs['year']}
+            &nbsp;·&nbsp; Within {inputs['max_dist']} km
+            &nbsp;·&nbsp; {len(records)} markets found
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div class='results-body'>", unsafe_allow_html=True)
+    st.markdown("<div class='results-body'>", unsafe_allow_html=True)
 
-    # Metric cards
-    st.markdown(f"<div class='sec-lbl'>Summary</div>", unsafe_allow_html=True)
-    m1, m2, m3, m4 = st.columns(4)
-    def mc(label, value, unit="", amber=False):
-        cls = "mc amber" if amber else "mc"
-        return f"""<div class="{cls}">
-            <div class="mc-lbl">{label}</div>
-            <div class="mc-val">{value}</div>
-            <div class="mc-unit">{unit}</div>
+    # ── KPI cards ──────────────────────────────────────────────────
+    st.markdown("<div class='sec-lbl'>Top Market — At a Glance</div>", unsafe_allow_html=True)
+    k1, k2, k3, k4, k5 = st.columns(5)
+    with k1:
+        st.markdown(mc("Best Mandi", best["market"], best["state"]), unsafe_allow_html=True)
+    with k2:
+        st.markdown(mc("Predicted Price",
+                       f"Rs. {best['predicted_price']:,.0f}", "per quintal"), unsafe_allow_html=True)
+    with k3:
+        st.markdown(mc("Gross Revenue",
+                       f"Rs. {best['gross_revenue']:,.0f}",
+                       f"for {inputs['quantity_kg']} kg"), unsafe_allow_html=True)
+    with k4:
+        st.markdown(mc("Total Costs",
+                       f"Rs. {best['total_costs']:,.0f}",
+                       "transport + fees", "red"), unsafe_allow_html=True)
+    with k5:
+        st.markdown(mc("Net Profit",
+                       f"Rs. {best['net_profit']:,.0f}",
+                       f"Rs. {best['profit_per_kg']:.2f}/kg", "amber"), unsafe_allow_html=True)
+
+    # ── Cost breakdown row ─────────────────────────────────────────
+    st.markdown("<div class='sec-lbl'>Cost Breakdown — Best Market</div>", unsafe_allow_html=True)
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
+        st.markdown(mc("Transport Cost",
+                       f"Rs. {best['transport_cost']:,.0f}",
+                       f"{best['distance_km']} km road distance"), unsafe_allow_html=True)
+    with b2:
+        st.markdown(mc("Mandi Commission",
+                       f"Rs. {best['mandi_fee']:,.0f}", "2% of gross"), unsafe_allow_html=True)
+    with b3:
+        st.markdown(mc("Misc. Costs",
+                       f"Rs. {best['misc_costs']:,.0f}", "handling + misc"), unsafe_allow_html=True)
+    with b4:
+        st.markdown(mc("Profit/kg",
+                       f"Rs. {best['profit_per_kg']:.2f}", "net per kg"), unsafe_allow_html=True)
+
+    # ── Charts row 1: Waterfall + Pie ─────────────────────────────
+    st.markdown("<div class='sec-lbl'>Profit Waterfall & Cost Split — Best Market</div>",
+                unsafe_allow_html=True)
+    ch1, ch2 = st.columns([3, 2])
+    with ch1:
+        st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
+                    f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
+                    f"Revenue → Costs → Net Profit</p>", unsafe_allow_html=True)
+        st.image(cost_waterfall_chart(best), use_container_width=True)
+    with ch2:
+        st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
+                    f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
+                    f"Where Does Your Money Go?</p>", unsafe_allow_html=True)
+        st.image(cost_pie_chart(best), use_container_width=True)
+
+    # ── Charts row 2: Bar (profit) + Bar (price) ──────────────────
+    st.markdown("<div class='sec-lbl'>All Markets Compared</div>", unsafe_allow_html=True)
+    ch3, ch4 = st.columns(2)
+    with ch3:
+        st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
+                    f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
+                    f"Net Profit by Market (Rs.)</p>", unsafe_allow_html=True)
+        st.image(profit_bar_chart(records), use_container_width=True)
+    with ch4:
+        st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
+                    f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
+                    f"Predicted Price per Quintal (Rs.)</p>", unsafe_allow_html=True)
+        st.image(price_comparison_chart(records), use_container_width=True)
+
+    # ── Scatter: distance vs profit ────────────────────────────────
+    st.markdown("<div class='sec-lbl'>Distance vs Profit Trade-off</div>",
+                unsafe_allow_html=True)
+    st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
+                f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
+                f"Bubble size = predicted price. Orange = best choice.</p>",
+                unsafe_allow_html=True)
+    st.image(distance_vs_profit_scatter(records), use_container_width=True)
+
+    # ── Ranked table ───────────────────────────────────────────────
+    st.markdown("<div class='sec-lbl'>Full Market Rankings</div>", unsafe_allow_html=True)
+    st.dataframe(style_table(records), use_container_width=True, hide_index=True)
+
+    # ── Recommendation summary (SMS-style ranked list) ─────────────
+    qty_kg = inputs["quantity_kg"]
+    # Build SMS-style market lines for top markets (same format as sms_handler.py)
+    top_markets = records[:3]
+    market_lines = ""
+    for i, r in enumerate(top_markets, 1):
+        market_lines += f"""
+        <div style="margin-bottom:14px;">
+            <div style="font-size:1.05rem;font-weight:700;color:{AMBER};">{i}. {r['market']}</div>
+            <div style="font-size:0.92rem;margin-top:3px;">
+                Rs.{r['predicted_price']:,.0f}/qtl
+                &nbsp;·&nbsp; Transport: Rs.{r['transport_cost']:,.0f}
+                &nbsp;·&nbsp; Net: <strong>Rs.{r['net_profit']:,.0f}</strong>
+                &nbsp;(Rs.{r['profit_per_kg']:.1f}/kg)
+            </div>
         </div>"""
-    with m1: st.markdown(mc("Best Mandi", best["Market"], best["State"]), unsafe_allow_html=True)
-    with m2: st.markdown(mc("Predicted Price", f"Rs. {best['Predicted_Price']:,.0f}", "per quintal"), unsafe_allow_html=True)
-    with m3: st.markdown(mc("Estimated Net Profit", f"Rs. {best['Net_Profit']:,.0f}", f"for {inputs['quantity_kg']} kg", amber=True), unsafe_allow_html=True)
-    with m4: st.markdown(mc("Distance", f"{best['Distance_km']} km", "from your district"), unsafe_allow_html=True)
 
-    # Table
-    st.markdown(f"<div class='sec-lbl'>All Markets — Ranked by Net Profit</div>", unsafe_allow_html=True)
-    st.dataframe(style_table(df), use_container_width=True, hide_index=True)
-
-    # Charts
-    st.markdown(f"<div class='sec-lbl'>Analysis</div>", unsafe_allow_html=True)
-    cl, cr = st.columns([3, 2])
-    with cl:
-        st.markdown(f"<p style='font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:6px;'>Net Profit by Market</p>", unsafe_allow_html=True)
-        st.plotly_chart(profit_bar_chart(df), use_container_width=True)
-    with cr:
-        st.markdown(f"<p style='font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:6px;'>Cost Breakdown — {best['Market']}</p>", unsafe_allow_html=True)
-        st.plotly_chart(cost_pie_chart(best, inputs["quantity_kg"]), use_container_width=True)
-
-    # Recommendation
-    farmer_ref = f"{inputs['farmer_name']}, the" if inputs["farmer_name"] else "The"
     st.markdown(f"""
     <div class="reco-box">
-        <div class="reco-lbl">Recommendation</div>
-        {farmer_ref} most profitable option is <strong>{best['Market']}, {best['State']}</strong>.
-        After transport, mandi commission, and miscellaneous costs, the estimated return is
-        <strong>Rs. {best['Net_Profit']:,.0f}</strong> for {inputs['quantity_kg']} kg of {inputs['commodity']}.
-        Distance from {inputs['district'] or 'your district'}: <strong>{best['Distance_km']} km</strong>.
+        <div class="reco-lbl">Fasal-to-Faida Results</div>
+        <div style="font-size:1.0rem;font-weight:600;margin-bottom:4px;">
+            {inputs['commodity']} &nbsp;|&nbsp; {qty_kg} kg
+        </div>
+        <div style="font-size:0.85rem;opacity:0.75;margin-bottom:18px;">
+            Sell: {inputs['month_name']} {inputs['year']} &nbsp;|&nbsp; {district}, {inputs['state']}
+        </div>
+        {market_lines}
+        <div style="font-size:0.78rem;opacity:0.6;margin-top:6px;">
+            Send #PINCODE via SMS to query from your phone
+        </div>
     </div>
-    <p style='font-size:0.74rem;color:{TEXT_MUTED};margin-top:14px;'>
-    Prices are model predictions based on historical Agmarknet data and are indicative only.
-    Transport costs use haversine distance with a 1.3x road circuity correction.
+    <p style='font-size:0.72rem;color:{TEXT_MUTED};margin-top:10px;'>
+    Prices predicted by XGBoost model trained on Agmarknet data (2023–2024).
+    Transport costs use haversine × 1.3 road factor with tiered truck rates.
+    Results are indicative and actual prices may vary.
     </p>
     """, unsafe_allow_html=True)
 
@@ -1039,7 +944,7 @@ def render_footer():
     st.markdown(f"""
     <div class="site-footer">
         <strong>Fasal-to-Faida</strong> &nbsp;|&nbsp; Bech Sahi, Kamaao Zyada &nbsp;|&nbsp;
-        Data sourced from Agmarknet, Government of India &nbsp;|&nbsp;
+        Powered by XGBoost · Agmarknet Data · Haversine Distance &nbsp;|&nbsp;
         AURELION 2026 Hackathon
     </div>
     """, unsafe_allow_html=True)
@@ -1052,8 +957,6 @@ def main():
     inject_css()
     render_navbar()
     render_hero()
-    render_float_cards()
-    render_split_section()
     render_features_section()
     inputs = render_form_section()
     if inputs["submitted"]:

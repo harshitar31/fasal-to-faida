@@ -44,61 +44,6 @@ QTY_LABELS = {
 }
 
 
-# ── Supported districts & name normalisation ─────────────────────────────────
-SUPPORTED_DISTRICTS = {
-    "Coimbatore", "Salem", "Erode", "Madurai", "Trichy",
-    "Tirupur", "Dindigul", "Namakkal", "Pollachi", "Thanjavur", "Chennai"
-}
-
-# Maps API-returned district names → internal names used in the distance matrix.
-# Keys are lowercase-stripped for case-insensitive matching.
-DISTRICT_NORMALIZE = {
-    "coimbatore":             "Coimbatore",
-    "coimbatore district":    "Coimbatore",
-    "salem":                  "Salem",
-    "erode":                  "Erode",
-    "madurai":                "Madurai",
-    "tiruchirappalli":        "Trichy",
-    "trichy":                 "Trichy",
-    "tiruppur":               "Tirupur",
-    "tirupur":                "Tirupur",
-    "dindigul":               "Dindigul",
-    "namakkal":               "Namakkal",
-    "pollachi":               "Pollachi",
-    "thanjavur":              "Thanjavur",
-    "chennai":                "Chennai",
-    "kancheepuram":           "Chennai",   # nearest supported
-    "chengalpattu":           "Chennai",
-    "tiruvallur":             "Chennai",
-    "the nilgiris":           "Coimbatore",  # nearest supported
-    "nilgiris":               "Coimbatore",
-    "ooty":                   "Coimbatore",
-    "krishnagiri":            "Salem",
-    "dharmapuri":             "Salem",
-    "karur":                  "Trichy",
-    "perambalur":             "Trichy",
-    "ariyalur":               "Trichy",
-}
-
-SUPPORTED_LIST_STR = ", ".join(sorted(SUPPORTED_DISTRICTS))
-
-
-def normalize_district(raw: str):
-    """
-    Maps a raw API district name to an internal supported name.
-    Returns the internal name string, or None if not mappable.
-    """
-    key = raw.strip().lower()
-    # Direct lookup
-    if key in DISTRICT_NORMALIZE:
-        return DISTRICT_NORMALIZE[key]
-    # Check if already a valid supported name (case-insensitive)
-    for supported in SUPPORTED_DISTRICTS:
-        if key == supported.lower():
-            return supported
-    return None
-
-
 # ── Load pincode → district from local CSV (no network needed) ────────────────
 _CSV_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -109,14 +54,15 @@ def _load_pincode_db(path: str) -> dict:
     """
     Reads 'india pincode final.csv' (columns: pincode, Taluk, Districtname, statename)
     and returns {pincode_str: (district, state)} for O(1) lookup.
+    district = raw Districtname from CSV (same value the web dropdown shows).
     """
     db = {}
     try:
         with open(path, newline="", encoding="latin-1") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                pin  = str(row.get("pincode", "")).strip().zfill(6)
-                dist = row.get("Districtname", "").strip()
+                pin   = str(row.get("pincode", "")).strip().zfill(6)
+                dist  = row.get("Districtname", "").strip()
                 state = row.get("statename", "").strip().title()  # 'TAMIL NADU' → 'Tamil Nadu'
                 if pin and dist:
                     db[pin] = (dist, state)
@@ -130,18 +76,18 @@ PINCODE_DB = _load_pincode_db(_CSV_PATH)
 # ── Pincode → District via local CSV ──────────────────────────────────────────
 def pincode_to_district(pincode: str):
     """
-    Returns (raw_district, state, normalized_district, error).
-    - error: 'bad_pincode' | 'not_found' | None (success)
-    Fully offline — uses PINCODE_DB loaded from local CSV at startup.
+    Returns (district, state, error).
+    district is the raw Districtname from the CSV — identical to what the
+    web app dropdown sends to recommend(), ensuring consistent queries.
+    error: 'bad_pincode' | 'not_found' | None (success)
     """
     if not re.fullmatch(r"\d{6}", pincode):
-        return None, None, None, "bad_pincode"
+        return None, None, "bad_pincode"
     result = PINCODE_DB.get(pincode)
     if result is None:
-        return None, None, None, "not_found"
-    raw_district, state = result
-    normalized = normalize_district(raw_district)
-    return raw_district, state, normalized, None
+        return None, None, "not_found"
+    district, state = result
+    return district, state, None
 
 
 # ── JSON helpers ─────────────────────────────────────────────────────────────
@@ -176,27 +122,19 @@ def sms_reply():
     # ── 1. REGISTRATION / DISTRICT CHANGE via #PINCODE ───────────────────────
     if body.startswith("#"):
         pincode = body[1:].strip()
-        raw_district, state, district, err = pincode_to_district(pincode)
+        district, state, err = pincode_to_district(pincode)
 
         if err in ("bad_pincode", "not_found"):
             return send(
-                "Invalid pincode.\n"
-                "Send a valid 6-digit pincode.\n"
+                "Invalid or unknown pincode.\n"
+                "Send a valid 6-digit Indian pincode.\n"
                 "Example: #641001"
-            )
-
-        # District recognised by API but not in our supported list
-        if district is None:
-            return send(
-                f"Your district ({raw_district}) is not yet supported.\n"
-                f"Supported: {SUPPORTED_LIST_STR}.\n"
-                f"Send a nearby district's pincode."
             )
 
         is_update = phone in users
         users[phone] = {
             "pincode":  pincode,
-            "district": district,   # normalized internal name
+            "district": district,   # raw Districtname from CSV
             "state":    state
         }
         save_json(USERS_FILE, users)
