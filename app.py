@@ -125,6 +125,118 @@ DUMMY_MARKETS = [
 ]
 
 # =============================================================================
+# DISTRICT NORMALISATION + STATE CROPS  — identical to sms_handler.py
+# =============================================================================
+DISTRICT_ALIASES = {
+    "ananthapur": "Anantapur", "karim nagar": "Karimnagar",
+    "k.v.rangareddy": "Rangareddi", "visakhapatnam": "Vishakhapatnam",
+    "dhubri": "Dhuburi", "mammit": "Mamit",
+    "east champaran": "Purba Champaran", "west champaran": "Pashchim Champaran",
+    "kaimur (bhabua)": "Bhabua", "palamau": "Palamu", "arwal": "Jehanabad",
+    "bijapur(cgh)": "Bijapur",
+    "central delhi": "Delhi", "east delhi": "Delhi", "new delhi": "Delhi",
+    "north delhi": "Delhi", "north west delhi": "Delhi", "south delhi": "Delhi",
+    "south west delhi": "Delhi", "west delhi": "Delhi",
+    "ahmedabad": "Ahmadabad", "ahmed nagar": "Ahmednagar",
+    "banaskantha": "Banas Kantha", "gandhi nagar": "Gandhinagar",
+    "sabarkantha": "Sabar Kantha", "surendra nagar": "Surendranagar",
+    "bilaspur (hp)": "Bilaspur", "hamirpur(hp)": "Hamirpur",
+    "lahul & spiti": "Lahul And Spiti",
+    "ananthnag": "Anantnag (Kashmir South)", "baramulla": "Baramula (Kashmir North)",
+    "poonch": "Punch", "reasi": "Rajauri",
+    "giridh": "Giridih", "khunti": "Ranchi", "ramgarh": "Ranchi",
+    "seraikela-kharsawan": "Saraikela Kharsawan",
+    "east singhbhum": "Purba Singhbhum", "west singhbhum": "Pashchim Singhbhum",
+    "bangalore": "Bangalore Urban", "chickmagalur": "Chikmagalur",
+    "chikkaballapur": "Chikmagalur", "dakshina kannada": "Dakshin Kannad",
+    "davangere": "Davanagere", "ramanagar": "Bangalore Rural",
+    "krishnagiri": "Dharmapuri", "uttara kannada": "Uttar Kannand",
+    "yadgir": "Gulbarga", "bijapur(kar)": "Bijapur",
+    "kasargod": "Kasaragod", "pathanamthitta": "Pattanamtitta",
+    "alirajpur": "Jhabua", "ashok nagar": "Ashoknagar", "budaun": "Badaun",
+    "khargone": "East Nimar", "rajnandgaon": "Raj Nandgaon", "singrauli": "Sidhi",
+    "aurangabad(bh)": "Aurangabad", "beed": "Bid", "buldhana": "Buldana",
+    "gadchiroli": "Garhchiroli", "gondia": "Gondiya",
+    "mumbai": "Greater Bombay", "raigarh(mh)": "Raigarh",
+    "imphal east": "East Imphal", "imphal west": "West Imphal",
+    "ri bhoi": "Ri-Bhoi",
+    "kiphire": "Tuensang", "longleng": "Mokokchung", "peren": "Kohima",
+    "balangir": "Bolangir", "baleswar": "Baleshwar", "bargarh": "Baragarh",
+    "debagarh": "Deogarh", "jagatsinghapur": "Jagatsinghpur",
+    "jajapur": "Jajpur", "kendujhar": "Keonjhar", "khorda": "Khordha",
+    "nabarangapur": "Nabarangpur", "sonapur": "Sonepur", "sundergarh": "Sundargarh",
+    "pondicherry": "Puducherry",
+    "nawanshahr": "Nawan Shehar", "ropar": "Rupnagar",
+    "chittorgarh": "Chittaurgarh", "dholpur": "Dhaulpur", "jhujhunu": "Jhunjhunun",
+    "tiruchirappalli": "Tiruchchirappalli", "tiruchirapalli": "Tiruchchirappalli",
+    "tiruchi": "Tiruchchirappalli", "trichy": "Tiruchchirappalli",
+    "tirunelveli": "Tirunelveli Kattabo", "tiruvallur": "Thiruvallur",
+    "tiruvarur": "Thiruvarur", "kancheepuram": "Kancheepuram",
+    "kanchipuram": "Kancheepuram", "the nilgiris": "Nilgiris",
+    "tuticorin": "Thoothukudi", "kanyakumari": "Kanniyakumari",
+    "chengalpattu": "Kancheepuram", "ranipet": "Vellore", "tiruppur": "Tirupur",
+    "barabanki": "Bara Banki", "bagpat": "Baghpat", "raebareli": "Rae Bareli",
+    "sant ravidas nagar": "Sant Ravi Das Nagar", "siddharthnagar": "Siddharth Nagar",
+    "shrawasti": "Shravasti", "kanpur nagar": "Kanpur", "kheri": "Lakhimpur Kheri",
+    "dehradun": "Dehra Dun", "nainital": "Naini Tal", "rudraprayag": "Rudra Prayag",
+    "bardhaman": "Barddhaman", "howrah": "Haora", "malda": "Maldah",
+    "north dinajpur": "Uttar Dinajpur", "south dinajpur": "Dakshin Dinajpur",
+    "sonipat": "Sonepat",
+    "dadra & nagar haveli": "Dadra And Nagar Haveli",
+    "lakshadweep": "Kavaratti", "east sikkim": "East",
+    "dibang valley": "Upper Dibang Valley", "bilaspur(cgh)": "Bilaspur",
+}
+
+
+def normalize_district(raw: str) -> str:
+    """
+    Corrects known spelling mismatches for centroid lookup.
+    Returns the corrected district name, or raw.title() if no alias.
+    Never returns None — all districts are accepted.
+    Identical logic to sms_handler.py.
+    """
+    key = raw.strip().lower()
+    if key in DISTRICT_ALIASES:
+        return DISTRICT_ALIASES[key]
+    return raw.strip().title()
+
+
+# Per-state crop availability (same as sms_handler.py)
+STATE_CROPS = {
+    "Andhra Pradesh":    ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Assam":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Bihar":             ["Onion", "Potato", "Tomato", "Wheat"],
+    "Chandigarh":        ["Onion", "Potato", "Tomato"],
+    "Chhattisgarh":      ["Onion", "Potato", "Tomato", "Wheat"],
+    "Delhi":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Goa":               ["Potato"],
+    "Gujarat":           ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Haryana":           ["Onion", "Potato", "Tomato", "Wheat"],
+    "Himachal Pradesh":  ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Jammu And Kashmir": ["Onion", "Potato", "Tomato"],
+    "Karnataka":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Kerala":            ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Madhya Pradesh":    ["Onion", "Potato", "Tomato", "Wheat"],
+    "Maharashtra":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Manipur":           ["Onion", "Potato", "Rice"],
+    "Meghalaya":         ["Onion", "Potato", "Tomato"],
+    "Nagaland":          ["Onion", "Potato", "Tomato"],
+    "Odisha":            ["Onion", "Potato", "Rice", "Tomato"],
+    "Punjab":            ["Onion", "Potato", "Tomato", "Wheat"],
+    "Rajasthan":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Tamil Nadu":        ["Onion", "Potato"],
+    "Tripura":           ["Onion"],
+    "Uttar Pradesh":     ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+    "Uttarakhand":       ["Onion", "Potato", "Rice", "Wheat"],
+    "West Bengal":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
+}
+
+
+def get_crops_for_state(state: str) -> list:
+    """Returns available crops for a state. Falls back to all CROPS."""
+    return STATE_CROPS.get(state.strip().title(), CROPS)
+
+# =============================================================================
 # CSS
 # =============================================================================
 def inject_css():
@@ -389,7 +501,6 @@ def make_dummy_df(commodity="Onion", quantity_kg=500):
 # =============================================================================
 # MODEL CALL
 # =============================================================================
-@st.cache_data(show_spinner=False)
 def get_recommendations(commodity, quantity_kg, district, state, month_num, year, max_dist):
     """Call real model; fall back to dummy on any error."""
     try:
@@ -402,13 +513,15 @@ def get_recommendations(commodity, quantity_kg, district, state, month_num, year
             target_month     = month_num,
             target_year      = year,
             max_distance_km  = max_dist,
-            top_n            = 8,
+            top_n            = 3,   # same as SMS
         )
         if results and len(results) > 0:
             return results, False   # (data, is_dummy)
+        # Model ran but found 0 markets — not a crash, just no results
+        return [], False
     except Exception as e:
         st.session_state["model_error"] = str(e)
-    return make_dummy_df(commodity, quantity_kg), True
+        return make_dummy_df(commodity, quantity_kg), True
 
 
 # =============================================================================
@@ -580,28 +693,13 @@ def style_table(records):
             "Profit/kg (Rs.)":  r["profit_per_kg"],
         })
     df = pd.DataFrame(rows)
-
-    def hi(row):
-        s = f"background:{GREEN};color:white;font-weight:700;" if row.name == 0 else ""
-        return [s] * len(row)
-
-    return (
-        df.style.apply(hi, axis=1)
-        .format({
-            "Price (Rs./q)":    "Rs. {:,.0f}",
-            "Transport (Rs.)":  "Rs. {:,.0f}",
-            "Net Profit (Rs.)": "Rs. {:,.0f}",
-            "Profit/kg (Rs.)":  "Rs. {:.2f}",
-            "Dist. (km)":       "{:.0f}",
-        })
-        .set_properties(**{"text-align": "right", "font-size": "13px"})
-        .set_table_styles([
-            {"selector": "th", "props": f"background:{BG_OFFWHITE};color:{TEXT_MUTED};"
-                                         "font-size:11px;letter-spacing:0.05em;"
-                                         "text-transform:uppercase;text-align:center;padding:10px 14px;"},
-            {"selector": "td", "props": "padding:9px 14px;"},
-        ])
-    )
+    # Format numeric columns as strings for display (no jinja2 needed)
+    df["Price (Rs./q)"]    = df["Price (Rs./q)"].apply(lambda x: f"Rs. {x:,.0f}")
+    df["Transport (Rs.)"] = df["Transport (Rs.)"].apply(lambda x: f"Rs. {x:,.0f}")
+    df["Net Profit (Rs.)"] = df["Net Profit (Rs.)"].apply(lambda x: f"Rs. {x:,.0f}")
+    df["Profit/kg (Rs.)"] = df["Profit/kg (Rs.)"].apply(lambda x: f"Rs. {x:.2f}")
+    df["Dist. (km)"]       = df["Dist. (km)"].apply(lambda x: f"{x:.0f} km")
+    return df
 
 
 # =============================================================================
@@ -700,38 +798,37 @@ def render_form_section():
         <div class="section-eyebrow dark">Find Your Market</div>
         <div class="section-title white" style="font-size:2.8rem;">Check Your Best Mandi</div>
         <div class="section-sub white" style="font-size:1.05rem;max-width:680px;">
-            Enter your crop details below — our XGBoost model instantly evaluates
-            every reachable mandi and ranks them by real net profit after all costs.
+            Enter your 6-digit pincode and crop details — our XGBoost model instantly
+            evaluates every reachable mandi and ranks them by real net profit after all costs.
         </div>
     </div>
     <div style="background:{GREEN};padding:16px 100px 56px 100px;">
     """, unsafe_allow_html=True)
 
-    # Row 1: name + state + district + crop  (state first, district second)
-    c1, c2, c3, c4 = st.columns([2.2, 2.2, 2.2, 2])
+    # Row 1: name + pincode + crop
+    c1, c2, c3 = st.columns([2.5, 2.5, 2])
     with c1:
         farmer_name = st.text_input("Farmer Name (optional)", placeholder="e.g. Ramesh Patil", key="fname")
     with c2:
-        state = st.selectbox("Your State *", INDIAN_STATES,
-                             index=INDIAN_STATES.index("Maharashtra"), key="state")
+        pincode = st.text_input(
+            "Your Pincode *",
+            placeholder="e.g. 641001",
+            max_chars=6,
+            key="pincode"
+        )
     with c3:
-        district_options = STATE_DISTRICTS.get(state) or _FALLBACK_DISTRICTS.get(state, ["— select district —"])
-        district = st.selectbox("Your District *", district_options, index=0, key="dist")
-    with c4:
         commodity = st.selectbox("Crop *", CROPS, index=1, key="crop")
 
-    # Row 2
-    c5, c6, c7, c8, c9 = st.columns([2, 2, 2, 2.5, 1.8])
-    with c5:
+    # Row 2: quantity + month + max distance + submit  (year = always now, same as SMS)
+    c4, c5, c6, c7 = st.columns([2, 2.5, 2.5, 1.8])
+    with c4:
         quantity_kg = st.number_input("Quantity (kg) *", min_value=10, value=500, step=50, key="qty")
-    with c6:
+    with c5:
         month_name = st.selectbox("Month to Sell *", MONTHS,
                                   index=pd.Timestamp.now().month - 1, key="mon")
+    with c6:
+        max_dist = st.slider("Max Distance (km)", 50, 500, 200, step=25, key="maxd")
     with c7:
-        year = st.selectbox("Year", [2025, 2026], index=0, key="yr")
-    with c8:
-        max_dist = st.slider("Max Distance (km)", 50, 500, 150, step=25, key="maxd")
-    with c9:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         submitted = st.button("🔍 Find Best Mandi", key="submit")
 
@@ -741,11 +838,10 @@ def render_form_section():
         "farmer_name": farmer_name.strip() if farmer_name else "",
         "commodity":   commodity,
         "quantity_kg": quantity_kg,
-        "district":    district if district else "",
-        "state":       state,
+        "pincode":     pincode.strip() if pincode else "",
         "month_num":   MONTHS.index(month_name) + 1,
         "month_name":  month_name,
-        "year":        year,
+        "year":        pd.Timestamp.now().year,   # always current year, same as SMS
         "max_dist":    max_dist,
         "submitted":   submitted,
     }
@@ -767,16 +863,42 @@ def mc(label, value, unit="", variant=""):
 # RESULTS SECTION
 # =============================================================================
 def render_results(inputs):
-    district = inputs["district"]
-    if not district:
-        st.warning("⚠️ Please enter your district to find markets.")
+    pincode = inputs["pincode"]
+
+    # ── Validate pincode ───────────────────────────────────────────
+    import re as _re
+    if not pincode:
+        st.warning("⚠️ Please enter your 6-digit pincode.")
         return
+    if not _re.fullmatch(r"\d{6}", pincode):
+        st.warning("⚠️ Pincode must be exactly 6 digits. Example: 641001")
+        return
+
+    # ── Resolve pincode → raw district + state ───────────────────
+    from recommender import lookup_pincode
+    loc = lookup_pincode(pincode)
+    if not loc["valid"]:
+        st.warning(
+            f"⚠️ Pincode **{pincode}** was not found in our database. "
+            "Please double-check and try again."
+        )
+        return
+
+    raw_district = loc["district"]   # e.g. 'COIMBATORE' / 'Nashik'
+    state        = loc["state"]      # e.g. 'Tamil Nadu'
+
+    # ── Normalise district name (same as sms_handler.py) ──────────
+    #   Fixes CSV spelling mismatches before passing to recommend()
+    district = normalize_district(raw_district)
+
+    # Show resolved location
+    st.info(f"📍 **{district}, {state}** (pincode {pincode})")
 
     # ── Loading spinner ────────────────────────────────────────────
     with st.spinner(f"🔍 Evaluating mandis for {inputs['commodity']} near {district}…"):
         records, is_dummy = get_recommendations(
             inputs["commodity"], inputs["quantity_kg"],
-            district, inputs["state"],
+            district, state,
             inputs["month_num"], inputs["year"],
             inputs["max_dist"],
         )
@@ -785,7 +907,9 @@ def render_results(inputs):
         st.markdown(f"""
         <div style="background:{BG_OFFWHITE};padding:40px 80px;">
             <div style="background:white;border-radius:4px;padding:32px;text-align:center;color:{TEXT_MUTED};">
-                No markets found within {inputs['max_dist']} km. Try increasing the distance or check the district name.
+                <b>No markets found</b> within {inputs['max_dist']} km of <b>{district}, {state}</b>.<br><br>
+                💡 Try increasing the <b>Max Distance</b> slider to 500 km,
+                or try a different crop that's traded in your region.
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -796,7 +920,12 @@ def render_results(inputs):
 
     # ── Dummy data notice ──────────────────────────────────────────
     if is_dummy:
-        st.warning("ℹ️ Using illustrative data — district not found in our database. Results are for demonstration only.")
+        err_detail = st.session_state.get("model_error", "unknown error")
+        st.error(
+            f"⚠️ Model failed — showing illustrative data only.\n\n"
+            f"**Error:** `{err_detail}`\n\n"
+            f"District passed to model: `{district}` · State: `{state}`"
+        )
 
     # ── Results header ─────────────────────────────────────────────
     st.markdown(f"""
@@ -806,7 +935,7 @@ def render_results(inputs):
             {name_str}Best Mandis for <em style="color:{AMBER_DARK}">{inputs['commodity']}</em>
         </div>
         <div style="font-size:0.85rem;color:{TEXT_MUTED};margin-top:4px;">
-            {inputs['quantity_kg']} kg &nbsp;·&nbsp; {district}, {inputs['state']}
+            {inputs['quantity_kg']} kg &nbsp;·&nbsp; {district}, {state}
             &nbsp;·&nbsp; {inputs['month_name']} {inputs['year']}
             &nbsp;·&nbsp; Within {inputs['max_dist']} km
             &nbsp;·&nbsp; {len(records)} markets found
@@ -862,12 +991,12 @@ def render_results(inputs):
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Revenue → Costs → Net Profit</p>", unsafe_allow_html=True)
-        st.image(cost_waterfall_chart(best), use_container_width=True)
+        st.image(cost_waterfall_chart(best), width='stretch')
     with ch2:
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Where Does Your Money Go?</p>", unsafe_allow_html=True)
-        st.image(cost_pie_chart(best), use_container_width=True)
+        st.image(cost_pie_chart(best), width='stretch')
 
     # ── Charts row 2: Bar (profit) + Bar (price) ──────────────────
     st.markdown("<div class='sec-lbl'>All Markets Compared</div>", unsafe_allow_html=True)
@@ -876,12 +1005,12 @@ def render_results(inputs):
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Net Profit by Market (Rs.)</p>", unsafe_allow_html=True)
-        st.image(profit_bar_chart(records), use_container_width=True)
+        st.image(profit_bar_chart(records), width='stretch')
     with ch4:
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Predicted Price per Quintal (Rs.)</p>", unsafe_allow_html=True)
-        st.image(price_comparison_chart(records), use_container_width=True)
+        st.image(price_comparison_chart(records), width='stretch')
 
     # ── Scatter: distance vs profit ────────────────────────────────
     st.markdown("<div class='sec-lbl'>Distance vs Profit Trade-off</div>",
@@ -890,7 +1019,7 @@ def render_results(inputs):
                 f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                 f"Bubble size = predicted price. Orange = best choice.</p>",
                 unsafe_allow_html=True)
-    st.image(distance_vs_profit_scatter(records), use_container_width=True)
+    st.image(distance_vs_profit_scatter(records), width='stretch')
 
     # ── Ranked table ───────────────────────────────────────────────
     st.markdown("<div class='sec-lbl'>Full Market Rankings</div>", unsafe_allow_html=True)
@@ -920,7 +1049,7 @@ def render_results(inputs):
             {inputs['commodity']} &nbsp;|&nbsp; {qty_kg} kg
         </div>
         <div style="font-size:0.85rem;opacity:0.75;margin-bottom:18px;">
-            Sell: {inputs['month_name']} {inputs['year']} &nbsp;|&nbsp; {district}, {inputs['state']}
+            Sell: {inputs['month_name']} {inputs['year']} &nbsp;|&nbsp; {district}, {state}
         </div>
         {market_lines}
         <div style="font-size:0.78rem;opacity:0.6;margin-top:6px;">
