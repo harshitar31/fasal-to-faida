@@ -7,33 +7,13 @@ from twilio.twiml.messaging_response import MessagingResponse
 import json
 import os
 import re
+import sys
 import datetime
 import csv
 
-# ── Optional: import your real recommender ──────────────────────────────────
-# from recommender import recommend
-# Mock below — swap out when recommender.py is ready
-def recommend(commodity, qty, location, month, year, df=None):
-    import random
-    markets = ["Erode", "Salem", "Tirupur", "Namakkal", "Dindigul"]
-    base_price = {"Tomato": 2200, "Onion": 2800, "Potato": 1900, "Wheat": 2100, "Rice": 2500}
-    bp = base_price.get(commodity, 2000)
-    results = []
-    for m in markets[:3]:
-        predicted = bp + random.randint(-300, 400)
-        transport = random.randint(300, 900)
-        gross = predicted * (qty / 100)
-        commission = gross * 0.02
-        misc = (qty / 100) * 10
-        net = gross - transport - commission - misc
-        results.append({
-            "market": m,
-            "predicted_price": predicted,
-            "transport_cost": transport,
-            "net_profit": net,
-            "profit_per_kg": net / qty,
-        })
-    return sorted(results, key=lambda x: x["net_profit"], reverse=True)
+# ── Add parent directory to path so we can import recommender ────────────────
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from recommender import recommend
 # ────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
@@ -347,16 +327,19 @@ def sms_reply():
         month      = session["month"]
         year       = datetime.datetime.now().year
         district   = users[phone]["district"]
+        state      = users[phone].get("state", "Tamil Nadu")
         month_name = datetime.date(2000, month, 1).strftime("%B")
 
         try:
             results = recommend(
-                commodity=crop,
-                qty=qty,
-                location=district,
-                month=month,
-                year=year,
-                df=None   # ← pass your loaded dataframe here
+                commodity       = crop,
+                quantity_kg     = qty,
+                farmer_district = district,
+                farmer_state    = state,
+                target_month    = month,
+                target_year     = year,
+                max_distance_km = 200,
+                top_n           = 3
             )
             top = results[:2]
 
