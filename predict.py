@@ -39,47 +39,134 @@ HARVEST_MONTHS = {
     'Rice':   [10, 11, 12]
 }
 
+# ── District name aliases — maps external spellings to parquet spellings ─────
+# The parquet (clean_df.parquet) uses the spellings from Agriculture_price_dataset.csv
+# which may differ from centroid CSV / pincode CSV / government reports.
+# Add entries here whenever a district lookup returns None unexpectedly.
+_DISTRICT_ALIASES = {
+    # Tamil Nadu
+    "tiruchchirappalli":   "Thiruchirappalli",   # centroid → parquet
+    "tiruchirappalli":     "Thiruchirappalli",
+    "tiruchirapalli":      "Thiruchirappalli",
+    "trichy":              "Thiruchirappalli",
+    "tirunelveli kattabo": "Tirunelveli",
+    "thiruvallur":         "Tiruvallur",
+    "thiruvarur":          "Thiruvarur",
+    "nilgiris":            "The Nilgiris",
+    "the nilgiris":        "The Nilgiris",
+    "thoothukudi":         "Tuticorin",
+    "kanniyakumari":       "Kanyakumari",
+    "tirupur":             "Tiruppur",
+    "kancheepuram":        "Kancheepuram",
+    # Karnataka
+    "bangalore urban":     "Bangalore",
+    "bangalore rural":     "Bangalore",
+    "dakshin kannad":      "Dakshina Kannada",
+    "davanagere":          "Davangere",
+    "uttar kannand":       "Uttara Kannada",
+    # Gujarat
+    "ahmadabad":           "Ahmedabad",
+    "banas kantha":        "Banaskantha",
+    "sabar kantha":        "Sabarkantha",
+    # Odisha
+    "bolangir":            "Balangir",
+    "baleshwar":           "Baleswar",
+    "baragarh":            "Bargarh",
+    "deogarh":             "Debagarh",
+    "jagatsinghpur":       "Jagatsinghapur",
+    "jajpur":              "Jajapur",
+    "keonjhar":            "Kendujhar",
+    "khordha":             "Khorda",
+    "nabarangpur":         "Nabarangapur",
+    "sonepur":             "Sonapur",
+    "sundargarh":          "Sundergarh",
+    # Bihar
+    "purba champaran":     "East Champaran",
+    "pashchim champaran":  "West Champaran",
+    "palamu":              "Palamau",
+    # Rajasthan
+    "chittaurgarh":        "Chittorgarh",
+    "dhaulpur":            "Dholpur",
+    "jhunjhunun":          "Jhujhunu",
+    # UP
+    "bara banki":          "Barabanki",
+    "baghpat":             "Bagpat",
+    "rae bareli":          "Raebareli",
+    # Uttarakhand
+    "dehra dun":           "Dehradun",
+    "naini tal":           "Nainital",
+    "rudra prayag":        "Rudraprayag",
+    # West Bengal
+    "barddhaman":          "Bardhaman",
+    "haora":               "Howrah",
+    "maldah":              "Malda",
+    "uttar dinajpur":      "North Dinajpur",
+    "dakshin dinajpur":    "South Dinajpur",
+}
+
+
+def _normalize_district(district: str) -> str:
+    """Map centroid/pincode-CSV spellings back to parquet/training spellings."""
+    key = district.strip().lower()
+    return _DISTRICT_ALIASES.get(key, district.strip().title())
+
+
 def _safe_encode(col, value):
     """Encode a value — returns 0 if unseen."""
     try:
-        return int(_encoders[col].transform(
-            [str(value)])[0])
+        return int(_encoders[col].transform([str(value)])[0])
     except ValueError:
-        # Unknown value — use most common class
         return 0
 
 
-def _get_recent_prices(commodity, market, district, state):
+def _get_recent_prices(commodity, market, district, state,
+                       target_month=None, target_year=None):
     """
-    Get last 90 days of prices for this 
-    commodity + market combo.
-    Falls back to state-level if market not found.
+    Get last 90 rows of prices for this commodity + market combo.
+    Applies district name normalisation before querying.
+    Fallback thresholds:
+      - market  : >= 7 rows
+      - district: >= 14 rows  (avoid noisy single-market districts)
+      - state   : >= 30 rows  (wide pool; only use if well-represented)
+    Staleness guard: a market/district is stale if its latest price is
+    more than 180 days before the parquet's own global max date.
+    This rejects markets that stopped reporting long before the dataset ends.
     """
-    # Try exact market match first
+    district = _normalize_district(district)
+    _parquet_max = _df['price_date'].max()
+
+    def _fresh_enough(hist):
+        if len(hist) == 0:
+            return False
+        latest = hist['price_date'].max()
+        return (_parquet_max - latest).days <= 180
+
+    # 1. Exact market match
     hist = _df[
         (_df['commodity'] == commodity) &
         (_df['market']    == market)
     ].sort_values('price_date').tail(90)
-
-    if len(hist) >= 7:
+    if len(hist) >= 7 and _fresh_enough(hist):
         return hist
 
-    # Fallback: same district + commodity
+    # 2. District-level fallback
     hist = _df[
         (_df['commodity'] == commodity) &
         (_df['district']  == district)
     ].sort_values('price_date').tail(90)
-
-    if len(hist) >= 7:
+    if len(hist) >= 14 and _fresh_enough(hist):
         return hist
 
-    # Fallback: same state + commodity
+    # 3. State-level fallback — only if enough data to be meaningful
     hist = _df[
         (_df['commodity'] == commodity) &
         (_df['state']     == state)
     ].sort_values('price_date').tail(90)
+    if len(hist) >= 30 and _fresh_enough(hist):
+        return hist
 
-    return hist
+    # Nothing usable — return empty so caller returns None
+    return _df.iloc[0:0]
 
 
 # ── Main prediction function ──────────────────────────────
@@ -110,7 +197,8 @@ def predict_price(district, commodity, state,
 
     # Get recent price history for lag features
     hist = _get_recent_prices(
-        commodity, market, district, state)
+        commodity, market, district, state,
+        target_month=target_month, target_year=target_year)
 
     if len(hist) == 0:
         return None
