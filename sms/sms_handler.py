@@ -21,28 +21,18 @@ from sms.strings import LANGS, LANG_MENU, STRINGS, t, crop_name
 
 app = Flask(__name__)
 
-# ── Twilio request validation (skipped in local dev if token not set) ─────────
-_TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
-_twilio_validator  = RequestValidator(_TWILIO_AUTH_TOKEN) if _TWILIO_AUTH_TOKEN else None
-
-@app.before_request
-def validate_twilio_signature():
-    if request.path != "/sms" or request.method != "POST":
-        return
-    if _twilio_validator is None:
-        return  # local dev — skip validation
-    # Reconstruct the public URL Twilio signed (Railway sits behind a proxy)
-    scheme = request.headers.get("X-Forwarded-Proto", "https")
-    host   = request.headers.get("X-Forwarded-Host", request.host)
-    url    = f"{scheme}://{host}/sms"
-    sig    = request.headers.get("X-Twilio-Signature", "")
-    valid  = _twilio_validator.validate(url, request.form.to_dict(), sig)
-    if not valid:
-        abort(403)
-
 # ── File paths ───────────────────────────────────────────────────────────────
 USERS_FILE    = "registered_users.json"
-SESSIONS_FILE = "sessions.json"
+SESSIONS_FILE = "/tmp/sessions.json"   # ephemeral per container run — that's fine
+
+# Seed registered users from USERS_JSON env var on cold start (survives redeploys)
+_USERS_JSON_ENV = os.environ.get("USERS_JSON", "")
+if _USERS_JSON_ENV and not os.path.exists(USERS_FILE):
+    try:
+        with open(USERS_FILE, "w", encoding="utf-8") as _f:
+            _f.write(_USERS_JSON_ENV)
+    except Exception:
+        pass
 
 # All 5 crops in display order (used as fallback)
 ALL_CROPS = ["Tomato", "Onion", "Potato", "Wheat", "Rice"]
