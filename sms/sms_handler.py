@@ -27,12 +27,12 @@ _twilio_validator  = RequestValidator(_TWILIO_AUTH_TOKEN) if _TWILIO_AUTH_TOKEN 
 
 @app.before_request
 def validate_twilio_signature():
-    if request.path != "/sms":
+    if request.path != "/sms" or request.method != "POST":
         return
     if _twilio_validator is None:
         return  # local dev — skip validation
-    sig    = request.headers.get("X-Twilio-Signature", "")
-    valid  = _twilio_validator.validate(request.url, request.form.to_dict(), sig)
+    sig   = request.headers.get("X-Twilio-Signature", "")
+    valid = _twilio_validator.validate(request.url, request.form.to_dict(), sig)
     if not valid:
         abort(403)
 
