@@ -1,9 +1,10 @@
 # sms_handler.py
-# Fasal-to-Faida — SMS simulation via Twilio
+# Fasal-to-Faida — SMS via Twilio
 # Registration: #PINCODE | Prediction: crop → month → qty → results
 
-from flask import Flask, request
+from flask import Flask, request, abort
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
 import json
 import os
 import re
@@ -17,9 +18,23 @@ os.chdir(_PROJECT_ROOT)
 sys.path.insert(0, _PROJECT_ROOT)
 from recommender import recommend
 from sms.strings import LANGS, LANG_MENU, STRINGS, t, crop_name
-# ────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
+
+# ── Twilio request validation (skipped in local dev if token not set) ─────────
+_TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+_twilio_validator  = RequestValidator(_TWILIO_AUTH_TOKEN) if _TWILIO_AUTH_TOKEN else None
+
+@app.before_request
+def validate_twilio_signature():
+    if request.path != "/sms":
+        return
+    if _twilio_validator is None:
+        return  # local dev — skip validation
+    sig    = request.headers.get("X-Twilio-Signature", "")
+    valid  = _twilio_validator.validate(request.url, request.form.to_dict(), sig)
+    if not valid:
+        abort(403)
 
 # ── File paths ───────────────────────────────────────────────────────────────
 USERS_FILE    = "registered_users.json"

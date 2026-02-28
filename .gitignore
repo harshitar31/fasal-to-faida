@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+.Python
+*.egg-info/
+
+# Secrets / user data
+registered_users.json
+sessions.json
+.env
+*.env
+secrets.toml
+
+# Test / scratch files
+test_*.py
+debug_*.py
+tmp_err.txt
+Districtwise_*.csv
+Districtwise_*.xlsx
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
