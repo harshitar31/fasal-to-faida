@@ -217,7 +217,7 @@ def recommend(commodity, quantity_kg,
      .drop_duplicates()\
      .reset_index(drop=True)
 
-    print(f"\n🔍 Evaluating {len(markets)} markets "
+    print(f"\n[INFO] Evaluating {len(markets)} markets "
           f"for {commodity}...")
 
     results = []
