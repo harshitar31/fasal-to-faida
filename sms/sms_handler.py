@@ -31,8 +31,12 @@ def validate_twilio_signature():
         return
     if _twilio_validator is None:
         return  # local dev — skip validation
-    sig   = request.headers.get("X-Twilio-Signature", "")
-    valid = _twilio_validator.validate(request.url, request.form.to_dict(), sig)
+    # Reconstruct the public URL Twilio signed (Railway sits behind a proxy)
+    scheme = request.headers.get("X-Forwarded-Proto", "https")
+    host   = request.headers.get("X-Forwarded-Host", request.host)
+    url    = f"{scheme}://{host}/sms"
+    sig    = request.headers.get("X-Twilio-Signature", "")
+    valid  = _twilio_validator.validate(url, request.form.to_dict(), sig)
     if not valid:
         abort(403)
 
