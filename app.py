@@ -614,16 +614,21 @@ def cost_pie_chart(best):
     values = [max(best["net_profit"], 0),
               best["transport_cost"], best["mandi_fee"], best["misc_costs"]]
     colors = [GREEN, AMBER_DARK, GREEN_LIGHT, "#C5BFB0"]
-    fig, ax = plt.subplots(figsize=(4.5, 3))
+    fig, ax = plt.subplots(figsize=(5.5, 3.5))
+
+    def autopct_fn(pct):
+        return f"{pct:.0f}%" if pct >= 5 else ""
+
     wedges, texts, autotexts = ax.pie(
-        values, labels=None, colors=colors, autopct="%1.0f%%",
+        values, labels=None, colors=colors, autopct=autopct_fn,
         pctdistance=0.75, startangle=90,
         wedgeprops=dict(width=0.55, edgecolor="white", linewidth=2),
     )
     for at in autotexts:
         at.set_fontsize(8)
         at.set_color("white")
-    ax.legend(labels, loc="center right", bbox_to_anchor=(1.35, 0.5),
+        at.set_fontweight("bold")
+    ax.legend(labels, loc="center right", bbox_to_anchor=(1.3, 0.5),
               fontsize=8, frameon=False)
     fig.patch.set_facecolor("white")
     fig.tight_layout()
@@ -994,12 +999,12 @@ def render_results(inputs):
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Revenue → Costs → Net Profit</p>", unsafe_allow_html=True)
-        st.image(cost_waterfall_chart(best), width='stretch')
+        st.image(cost_waterfall_chart(best), width="content")
     with ch2:
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Where Does Your Money Go?</p>", unsafe_allow_html=True)
-        st.image(cost_pie_chart(best), width='stretch')
+        st.image(cost_pie_chart(best), width="content")
 
     # ── Charts row 2: Bar (profit) + Bar (price) ──────────────────
     st.markdown("<div class='sec-lbl'>All Markets Compared</div>", unsafe_allow_html=True)
@@ -1008,12 +1013,12 @@ def render_results(inputs):
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Net Profit by Market (Rs.)</p>", unsafe_allow_html=True)
-        st.image(profit_bar_chart(records), width='stretch')
+        st.image(profit_bar_chart(records), width="content")
     with ch4:
         st.markdown(f"<p style='font-size:0.7rem;font-weight:700;letter-spacing:0.1em;"
                     f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                     f"Predicted Price per Quintal (Rs.)</p>", unsafe_allow_html=True)
-        st.image(price_comparison_chart(records), width='stretch')
+        st.image(price_comparison_chart(records), width="content")
 
     # ── Scatter: distance vs profit ────────────────────────────────
     st.markdown("<div class='sec-lbl'>Distance vs Profit Trade-off</div>",
@@ -1022,7 +1027,7 @@ def render_results(inputs):
                 f"text-transform:uppercase;color:{TEXT_MUTED};margin-bottom:4px;'>"
                 f"Bubble size = predicted price. Orange = best choice.</p>",
                 unsafe_allow_html=True)
-    st.image(distance_vs_profit_scatter(records), width='stretch')
+    st.image(distance_vs_profit_scatter(records), width="content")
 
     # ── Ranked table ───────────────────────────────────────────────
     st.markdown("<div class='sec-lbl'>Full Market Rankings</div>", unsafe_allow_html=True)
@@ -1034,16 +1039,16 @@ def render_results(inputs):
     top_markets = records[:3]
     market_lines = ""
     for i, r in enumerate(top_markets, 1):
-        market_lines += f"""
-        <div style="margin-bottom:14px;">
-            <div style="font-size:1.05rem;font-weight:700;color:{AMBER};">{i}. {r['market']}</div>
-            <div style="font-size:0.92rem;margin-top:3px;">
-                Rs.{r['predicted_price']:,.0f}/qtl
-                &nbsp;·&nbsp; Transport: Rs.{r['transport_cost']:,.0f}
-                &nbsp;·&nbsp; Net: <strong>Rs.{r['net_profit']:,.0f}</strong>
-                &nbsp;(Rs.{r['profit_per_kg']:.1f}/kg)
-            </div>
-        </div>"""
+        market_lines += (
+            f'<div style="margin-bottom:14px;">'
+            f'<div style="font-size:1.05rem;font-weight:700;color:{AMBER};">{i}. {r["market"]}</div>'
+            f'<div style="font-size:0.92rem;margin-top:3px;">'
+            f'Rs.{r["predicted_price"]:,.0f}/qtl'
+            f' &nbsp;·&nbsp; Transport: Rs.{r["transport_cost"]:,.0f}'
+            f' &nbsp;·&nbsp; Net: <strong>Rs.{r["net_profit"]:,.0f}</strong>'
+            f' &nbsp;(Rs.{r["profit_per_kg"]:.1f}/kg)'
+            f'</div></div>'
+        )
 
     st.markdown(f"""
     <div class="reco-box">
@@ -1066,6 +1071,37 @@ def render_results(inputs):
     </p>
     """, unsafe_allow_html=True)
 
+    # ── AI Summary (featherless.ai) ────────────────────────────────
+    # Read the key directly from secrets every run — no sidebar dependency
+    api_key = ""
+    try:
+        api_key = st.secrets["featherless"]["api_key"]
+    except Exception:
+        pass
+    # Also allow sidebar override (set by user if they want to swap keys)
+    api_key = st.session_state.get("featherless_key", api_key) or api_key
+
+    if api_key:
+        with st.spinner("🤖 Generating AI summary…"):
+            from llm_summary import generate_summary
+            summary, err = generate_summary(records, inputs, district, state, api_key)
+        if summary:
+            st.markdown(f"""
+            <div style="background:#EDF7EE;border-left:5px solid {GREEN_MID};
+                        border-radius:6px;padding:20px 26px;margin-top:16px;
+                        box-shadow:0 2px 10px rgba(27,67,50,0.12);">
+                <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.13em;
+                            text-transform:uppercase;color:{GREEN_MID};margin-bottom:10px;">
+                    🤖 AI Market Advisory
+                </div>
+                <div style="font-size:0.95rem;line-height:1.75;color:{TEXT_DARK};">{summary}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning(f"⚠️ AI summary unavailable: {err}")
+    else:
+        st.info("💬 AI Market Advisory unavailable — no API key found in secrets.toml.")
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1076,8 +1112,7 @@ def render_footer():
     st.markdown(f"""
     <div class="site-footer">
         <strong>Fasal-to-Faida</strong> &nbsp;|&nbsp; Bech Sahi, Kamaao Zyada &nbsp;|&nbsp;
-        Powered by XGBoost · Agmarknet Data · Haversine Distance &nbsp;|&nbsp;
-        AURELION 2026 Hackathon
+        Powered by XGBoost · Agmarknet Data 
     </div>
     """, unsafe_allow_html=True)
 
@@ -1087,6 +1122,25 @@ def render_footer():
 # =============================================================================
 def main():
     inject_css()
+
+    # ── Featherless.ai sidebar status + optional key override ──────────
+    secrets_key = ""
+    try:
+        secrets_key = st.secrets["featherless"]["api_key"]
+    except Exception:
+        pass
+    with st.sidebar:
+        st.markdown("### 🤖 AI Summary")
+        if secrets_key:
+            st.success("API key loaded from secrets ✓")
+        override = st.text_input(
+            "Override API Key (optional)",
+            type="password",
+            help="Leave blank to use the key from .streamlit/secrets.toml",
+            key="_fl_key_input",
+        )
+        st.session_state["featherless_key"] = override.strip() if override.strip() else ""
+
     render_navbar()
     render_hero()
     render_features_section()
