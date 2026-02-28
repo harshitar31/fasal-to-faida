@@ -138,29 +138,21 @@ STRINGS = {
             "Fasal-to-Faida Help\n\n"
             "Register district:\n"
             "  #PINCODE (e.g. #641001)\n\n"
-            "Get prediction:\n"
-            "  Just text us\n\n"
-            "Go back one step:\n"
-            "  Send  *\n\n"
-            "Change language:\n"
-            "  LANG 1 / LANG 2 / LANG 3\n\n"
+            "Go back: *\n"
+            "Change language: **\n\n"
             "Restart: MENU or HI"
         ),
         "HI": (
             "Fasal-to-Faida \u0938\u0939\u093e\u092f\u0924\u093e\n\n"
-            "\u091c\u093f\u0932\u093e \u0926\u0930\u094d\u091c \u0915\u0930\u0947\u0902:\n"
-            "  #\u092a\u093f\u0928\u0915\u094b\u0921 (\u091c\u0948\u0938\u0947 #641001)\n\n"
-            "\u092d\u093e\u0937\u093e \u092c\u0926\u0932\u0947\u0902:\n"
-            "  LANG 1 / LANG 2 / LANG 3\n\n"
-            "\u0935\u093e\u092a\u0938: *  |  \u0930\u093f\u0938\u0947\u091f: MENU"
+            "\u091c\u093f\u0932\u093e \u0926\u0930\u094d\u091c: #\u092a\u093f\u0928\u0915\u094b\u0921\n\n"
+            "\u0935\u093e\u092a\u0938: *  |  \u092d\u093e\u0937\u093e: **\n\n"
+            "\u0930\u093f\u0938\u0947\u091f: MENU"
         ),
         "TA": (
             "Fasal-to-Faida \u0b89\u0ba4\u0bb5\u0bbf\n\n"
-            "\u0bae\u0bbe\u0bb5\u0b9f\u0bcd\u0b9f\u0bae\u0bcd \u0baa\u0ba4\u0bbf\u0bb5\u0bc1 \u0b9a\u0bc6\u0baf\u0bcd\u0baf:\n"
-            "  #\u0baa\u0bbf\u0ba9\u0bcd\u0b95\u0bcb\u0b9f\u0bcd (\u0b89\u0ba4\u0bbe: #641001)\n\n"
-            "\u0bae\u0bca\u0bb4\u0bbf \u0bae\u0bbe\u0bb1\u0bcd\u0bb1:\n"
-            "  LANG 1 / LANG 2 / LANG 3\n\n"
-            "\u0bae\u0bc1\u0ba8\u0bcd\u0ba4\u0bc8\u0baf: *  |  \u0bae\u0bb1\u0bc1\u0ba4\u0bc6\u0bbe\u0b9f\u0b95\u0bcd\u0b95\u0bae\u0bcd: MENU"
+            "\u0bae\u0bbe\u0bb5\u0b9f\u0bcd\u0b9f\u0bae\u0bcd: #\u0baa\u0bbf\u0ba9\u0bcd\u0b95\u0bcb\u0b9f\u0bcd\n\n"
+            "\u0bae\u0bc1\u0ba8\u0bcd\u0ba4\u0bc8\u0baf: *  |  \u0bae\u0bca\u0bb4\u0bbf: **\n\n"
+            "\u0bae\u0bb1\u0bc1\u0ba4\u0bc6\u0bbe\u0b9f\u0b95\u0bcd\u0b95\u0bae\u0bcd: MENU"
         ),
     },
 

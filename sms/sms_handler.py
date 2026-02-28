@@ -350,10 +350,12 @@ def save_json(path: str, data: dict):
 
 
 # ── SMS helper ────────────────────────────────────────────────────────────────
-def send(msg: str) -> str:
+def send(msg: str):
+    from flask import Response
     r = MessagingResponse()
     r.message(msg)
-    return str(r)
+    return Response(str(r), mimetype="text/xml")
+
 
 
 # ── Main Twilio webhook ───────────────────────────────────────────────────────
@@ -398,7 +400,13 @@ def sms_reply():
                       action=action, district=district,
                       state=state, crop_menu=crop_menu))
 
-    # ── LANG N — switch language anytime ─────────────────────────────────────
+    # ── LANG N  or  ** — switch language anytime ─────────────────────────────
+    if body == "**":
+        # Show language menu so user can pick by number
+        sessions[phone] = {**sessions.get(phone, {}), "pending_lang": True, "step": "lang"}
+        save_json(SESSIONS_FILE, sessions)
+        return send(LANG_MENU)
+
     if body_upper.startswith("LANG "):
         code     = body_upper.split(None, 1)[1].strip()
         new_lang = LANGS.get(code)
