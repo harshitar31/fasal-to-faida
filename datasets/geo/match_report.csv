@@ -1,0 +1,102 @@
+kind,source_state,source_district,state,district,method,score
+market,Jammu and Kashmir,Rajouri,Jammu and Kashmir,Rajauri,fuzzy,0.923
+market,Maharashtra,Amarawati,Maharashtra,Amravati,fuzzy,0.941
+market,Maharashtra,Raigad,Maharashtra,Raigarh,fuzzy,0.833
+market,Odisha,Khurda,Odisha,Khordha,fuzzy,0.8
+market,Rajasthan,Jalore,Rajasthan,Jalor,fuzzy,0.909
+market,Uttar Pradesh,Bulandshahar,Uttar Pradesh,Bulandshahr,fuzzy,0.952
+pincode,ANDHRA PRADESH,Mahabub Nagar,Andhra Pradesh,Mahbubnagar,fuzzy,0.957
+market,Assam,Dhubri,Assam,Dhuburi,legacy_alias,1.0
+market,Gujarat,Ahmedabad,Gujarat,Ahmadabad,legacy_alias,1.0
+market,Haryana,Sonipat,Haryana,Sonepat,legacy_alias,1.0
+market,Karnataka,Bangalore,Karnataka,Bangalore Urban,legacy_alias,1.0
+market,Karnataka,Davangere,Karnataka,Davanagere,legacy_alias,1.0
+market,Madhya Pradesh,Alirajpur,Madhya Pradesh,Jhabua,legacy_alias,1.0
+market,Maharashtra,Mumbai,Maharashtra,Greater Bombay,legacy_alias,1.0
+market,Nagaland,Kiphire,Nagaland,Tuensang,legacy_alias,1.0
+market,Nagaland,Peren,Nagaland,Kohima,legacy_alias,1.0
+market,Odisha,Bargarh,Odisha,Baragarh,legacy_alias,1.0
+market,Punjab,Nawanshahr,Punjab,Nawan Shehar,legacy_alias,1.0
+market,Rajasthan,Chittorgarh,Rajasthan,Chittaurgarh,legacy_alias,1.0
+market,Tamil Nadu,Krishnagiri,Tamil Nadu,Dharmapuri,legacy_alias,1.0
+market,Tamil Nadu,Ranipet,Tamil Nadu,Vellore,legacy_alias,1.0
+market,Tamil Nadu,The Nilgiris,Tamil Nadu,Nilgiris,legacy_alias,1.0
+market,Tamil Nadu,Thirunelveli,Tamil Nadu,Tirunelveli Kattabo,legacy_alias,1.0
+market,West Bengal,Howrah,West Bengal,Haora,legacy_alias,1.0
+pincode,ANDHRA PRADESH,K.V.Rangareddy,Andhra Pradesh,Rangareddi,legacy_alias,1.0
+pincode,ARUNACHAL PRADESH,Dibang Valley,Arunachal Pradesh,Upper Dibang Valley,legacy_alias,1.0
+pincode,ASSAM,Dhubri,Assam,Dhuburi,legacy_alias,1.0
+pincode,BIHAR,Arwal,Bihar,Jehanabad,legacy_alias,1.0
+pincode,BIHAR,East Champaran,Bihar,Purba Champaran,legacy_alias,1.0
+pincode,BIHAR,West Champaran,Bihar,Pashchim Champaran,legacy_alias,1.0
+pincode,DELHI,Central Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,DELHI,East Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,DELHI,New Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,DELHI,North Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,DELHI,North West Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,DELHI,South Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,DELHI,South West Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,DELHI,West Delhi,Delhi,Delhi,legacy_alias,1.0
+pincode,GUJARAT,Ahmedabad,Gujarat,Ahmadabad,legacy_alias,1.0
+pincode,HARYANA,Sonipat,Haryana,Sonepat,legacy_alias,1.0
+pincode,JHARKHAND,East Singhbhum,Jharkhand,Purba Singhbhum,legacy_alias,1.0
+pincode,JHARKHAND,Giridh,Jharkhand,Giridih,legacy_alias,1.0
+pincode,JHARKHAND,Khunti,Jharkhand,Ranchi,legacy_alias,1.0
+pincode,JHARKHAND,Palamau,Jharkhand,Palamu,legacy_alias,1.0
+pincode,JHARKHAND,Seraikela-kharsawan,Jharkhand,Saraikela Kharsawan,legacy_alias,1.0
+pincode,JHARKHAND,West Singhbhum,Jharkhand,Pashchim Singhbhum,legacy_alias,1.0
+pincode,KARNATAKA,Bangalore,Karnataka,Bangalore Urban,legacy_alias,1.0
+pincode,KARNATAKA,Dakshina Kannada,Karnataka,Dakshin Kannad,legacy_alias,1.0
+pincode,KARNATAKA,Davangere,Karnataka,Davanagere,legacy_alias,1.0
+pincode,KARNATAKA,Ramanagar,Karnataka,Bangalore Rural,legacy_alias,1.0
+pincode,KARNATAKA,Uttara Kannada,Karnataka,Uttar Kannand,legacy_alias,1.0
+pincode,KARNATAKA,Yadgir,Karnataka,Gulbarga,legacy_alias,1.0
+pincode,KERALA,Kasargod,Kerala,Kasaragod,legacy_alias,1.0
+pincode,LAKSHADWEEP,Lakshadweep,Lakshadweep,Kavaratti,legacy_alias,1.0
+pincode,MADHYA PRADESH,Alirajpur,Madhya Pradesh,Jhabua,legacy_alias,1.0
+pincode,MADHYA PRADESH,Singrauli,Madhya Pradesh,Sidhi,legacy_alias,1.0
+pincode,MAHARASHTRA,Gadchiroli,Maharashtra,Garhchiroli,legacy_alias,1.0
+pincode,MAHARASHTRA,Mumbai,Maharashtra,Greater Bombay,legacy_alias,1.0
+pincode,MANIPUR,Imphal East,Manipur,East Imphal,legacy_alias,1.0
+pincode,MANIPUR,Imphal West,Manipur,West Imphal,legacy_alias,1.0
+pincode,NAGALAND,Kiphire,Nagaland,Tuensang,legacy_alias,1.0
+pincode,NAGALAND,Peren,Nagaland,Kohima,legacy_alias,1.0
+pincode,ODISHA,Balangir,Odisha,Bolangir,legacy_alias,1.0
+pincode,ODISHA,Bargarh,Odisha,Baragarh,legacy_alias,1.0
+pincode,ODISHA,Debagarh,Odisha,Deogarh,legacy_alias,1.0
+pincode,ODISHA,Jagatsinghapur,Odisha,Jagatsinghpur,legacy_alias,1.0
+pincode,ODISHA,Jajapur,Odisha,Jajpur,legacy_alias,1.0
+pincode,ODISHA,Kendujhar,Odisha,Keonjhar,legacy_alias,1.0
+pincode,ODISHA,Nabarangapur,Odisha,Nabarangpur,legacy_alias,1.0
+pincode,ODISHA,Sonapur,Odisha,Sonepur,legacy_alias,1.0
+pincode,ODISHA,Sundergarh,Odisha,Sundargarh,legacy_alias,1.0
+pincode,PONDICHERRY,Pondicherry,Puducherry,Puducherry,legacy_alias,1.0
+pincode,PUNJAB,Nawanshahr,Punjab,Nawan Shehar,legacy_alias,1.0
+pincode,PUNJAB,Ropar,Punjab,Rupnagar,legacy_alias,1.0
+pincode,RAJASTHAN,Chittorgarh,Rajasthan,Chittaurgarh,legacy_alias,1.0
+pincode,RAJASTHAN,Dholpur,Rajasthan,Dhaulpur,legacy_alias,1.0
+pincode,RAJASTHAN,Jhujhunu,Rajasthan,Jhunjhunun,legacy_alias,1.0
+pincode,SIKKIM,East Sikkim,Sikkim,East,legacy_alias,1.0
+pincode,TAMIL NADU,Krishnagiri,Tamil Nadu,Dharmapuri,legacy_alias,1.0
+pincode,TAMIL NADU,Tirunelveli,Tamil Nadu,Tirunelveli Kattabo,legacy_alias,1.0
+pincode,TAMIL NADU,Tuticorin,Tamil Nadu,Thoothukudi,legacy_alias,1.0
+pincode,UTTAR PRADESH,Budaun,Uttar Pradesh,Badaun,legacy_alias,1.0
+pincode,UTTAR PRADESH,Kanpur Nagar,Uttar Pradesh,Kanpur,legacy_alias,1.0
+pincode,UTTAR PRADESH,Kheri,Uttar Pradesh,Lakhimpur Kheri,legacy_alias,1.0
+pincode,WEST BENGAL,Howrah,West Bengal,Haora,legacy_alias,1.0
+pincode,WEST BENGAL,Malda,West Bengal,Maldah,legacy_alias,1.0
+pincode,WEST BENGAL,North Dinajpur,West Bengal,Uttar Dinajpur,legacy_alias,1.0
+pincode,WEST BENGAL,South Dinajpur,West Bengal,Dakshin Dinajpur,legacy_alias,1.0
+market,Uttar Pradesh,Bariya,Chhattisgarh,Surguja,market_override,1.0
+market,Uttar Pradesh,Kusmee,Chhattisgarh,Surguja,market_override,1.0
+market,Uttar Pradesh,Rajpur,Chhattisgarh,Surguja,market_override,1.0
+market,Uttar Pradesh,Ramanujganj,Chhattisgarh,Surguja,market_override,1.0
+market,Chhattisgarh,Namhol(Bilaspur),Himachal Pradesh,Bilaspur,market_override,1.0
+market,Himachal Pradesh,Bharuasumerpur,Uttar Pradesh,Hamirpur,market_override,1.0
+market,Assam,Golagokarnath,Uttar Pradesh,Lakhimpur Kheri,market_override,1.0
+market,Himachal Pradesh,Kurara,Uttar Pradesh,Hamirpur,market_override,1.0
+market,Assam,Lakhimpur,Uttar Pradesh,Lakhimpur Kheri,market_override,1.0
+market,Himachal Pradesh,Maudaha,Uttar Pradesh,Hamirpur,market_override,1.0
+market,Himachal Pradesh,Muskara,Uttar Pradesh,Hamirpur,market_override,1.0
+market,Assam,Paliakala,Uttar Pradesh,Lakhimpur Kheri,market_override,1.0
+market,Himachal Pradesh,Raath,Uttar Pradesh,Hamirpur,market_override,1.0

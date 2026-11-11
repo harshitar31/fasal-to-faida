@@ -6,20 +6,75 @@ from flask import Flask, request, abort
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.request_validator import RequestValidator
 import json
+import logging
 import os
 import re
 import sys
 import datetime
-import csv
 
 # ── Set working directory to project root so recommender's relative paths work ─
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(_PROJECT_ROOT)
 sys.path.insert(0, _PROJECT_ROOT)
+import geo
 from recommender import recommend
 from sms.strings import LANGS, LANG_MENU, STRINGS, t, crop_name
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("fasal.sms")
+
+# ── Twilio request validation ────────────────────────────────────────────────
+# Fails CLOSED: without TWILIO_AUTH_TOKEN every POST /sms is rejected, unless
+# ALLOW_UNSIGNED_SMS=1 is set explicitly (local development only).
+#
+# TWILIO_WEBHOOK_URL must be the exact URL configured in the Twilio console,
+# e.g. https://your-app.up.railway.app/sms — Twilio signs that string, and
+# rebuilding it from proxy headers is what broke validation before.
+_TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN", "")
+_TWILIO_WEBHOOK_URL = os.environ.get("TWILIO_WEBHOOK_URL", "").strip()
+_ALLOW_UNSIGNED     = os.environ.get("ALLOW_UNSIGNED_SMS") == "1"
+_twilio_validator   = RequestValidator(_TWILIO_AUTH_TOKEN) if _TWILIO_AUTH_TOKEN else None
+
+if _twilio_validator is None and not _ALLOW_UNSIGNED:
+    log.warning("TWILIO_AUTH_TOKEN not set: all /sms requests will be rejected. "
+                "Set ALLOW_UNSIGNED_SMS=1 for local development.")
+
+
+def _signed_url() -> str:
+    """The URL Twilio signed: explicit config, else rebuilt from proxy headers."""
+    if _TWILIO_WEBHOOK_URL:
+        url = _TWILIO_WEBHOOK_URL
+        if request.query_string:
+            url += "?" + request.query_string.decode()
+        return url
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    host   = request.headers.get("X-Forwarded-Host", request.host)
+    return f"{scheme}://{host}{request.full_path.rstrip('?')}"
+
+
+@app.before_request
+def validate_twilio_signature():
+    if request.path != "/sms" or request.method != "POST":
+        return
+    if _twilio_validator is None:
+        if _ALLOW_UNSIGNED:
+            return
+        abort(403)
+    sig = request.headers.get("X-Twilio-Signature", "")
+    if not _twilio_validator.validate(_signed_url(), request.form.to_dict(), sig):
+        log.warning("Rejected /sms request with invalid Twilio signature")
+        abort(403)
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    """Log the real error server-side; the user only gets a generic reply."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        return exc
+    log.exception("Unhandled error in SMS webhook")
+    return send(t("error", "EN"))
 
 # ── File paths ───────────────────────────────────────────────────────────────
 USERS_FILE    = "registered_users.json"
@@ -37,45 +92,20 @@ if _USERS_JSON_ENV and not os.path.exists(USERS_FILE):
 # All 5 crops in display order (used as fallback)
 ALL_CROPS = ["Tomato", "Onion", "Potato", "Wheat", "Rice"]
 
-# Per-state crop availability — derived from clean_df.parquet
-# Only crops with actual training data for that state are shown
-STATE_CROPS = {
-    "Andhra Pradesh":    ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Assam":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Bihar":             ["Onion", "Potato", "Tomato", "Wheat"],
-    "Chandigarh":        ["Onion", "Potato", "Tomato"],
-    "Chhattisgarh":      ["Onion", "Potato", "Tomato", "Wheat"],
-    "Delhi":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Goa":               ["Potato"],
-    "Gujarat":           ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Haryana":           ["Onion", "Potato", "Tomato", "Wheat"],
-    "Himachal Pradesh":  ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Jammu And Kashmir": ["Onion", "Potato", "Tomato"],
-    "Karnataka":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Kerala":            ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Madhya Pradesh":    ["Onion", "Potato", "Tomato", "Wheat"],
-    "Maharashtra":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Manipur":           ["Onion", "Potato", "Rice"],
-    "Meghalaya":         ["Onion", "Potato", "Tomato"],
-    "Nagaland":          ["Onion", "Potato", "Tomato"],
-    "Odisha":            ["Onion", "Potato", "Rice", "Tomato"],
-    "Punjab":            ["Onion", "Potato", "Tomato", "Wheat"],
-    "Rajasthan":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Tamil Nadu":        ["Onion", "Potato"],
-    "Tripura":           ["Onion"],
-    "Uttar Pradesh":     ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Uttarakhand":       ["Onion", "Potato", "Rice", "Wheat"],
-    "West Bengal":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-}
-
 def get_lang(phone: str, users: dict) -> str:
     """Return stored language code for this user, defaulting to EN."""
     return users.get(phone, {}).get("lang", "EN")
 
-def get_crops_for_state(state: str) -> list:
-    """Returns available crop list for a state. Falls back to ALL_CROPS."""
-    key = state.strip().title()
-    return STATE_CROPS.get(key, ALL_CROPS)
+MAX_DISTANCE_KM = 200
+
+
+def get_crops_for_user(user: dict) -> list:
+    """Crops traded at a mandi within MAX_DISTANCE_KM of the user's pincode.
+    Falls back to ALL_CROPS if the pincode is missing or unknown."""
+    loc = geo.lookup_pincode(user.get("pincode", ""))
+    if not loc["valid"]:
+        return ALL_CROPS
+    return geo.available_crops(loc["lat"], loc["lon"], MAX_DISTANCE_KM, order=ALL_CROPS) or ALL_CROPS
 
 def build_crop_menu(crops: list, lang: str = "EN") -> tuple:
     """
@@ -100,246 +130,15 @@ QTY_LABELS = {
 }
 
 
-# ── District name normalisation ───────────────────────────────────────────────
-# Auto-derived by diffing 'india pincode final.csv' district names against
-# 'district wise centroids.csv'. Covers all 26 states.
-# Keys = lowercase pincode-CSV spelling → Value = exact centroid-CSV spelling.
-DISTRICT_ALIASES = {
-    # Andhra Pradesh
-    "ananthapur":               "Anantapur",
-    "karim nagar":              "Karimnagar",
-    "k.v.rangareddy":           "Rangareddi",
-    "visakhapatnam":            "Vishakhapatnam",
-
-    # Assam
-    "dhubri":                   "Dhuburi",
-    "mammit":                   "Mamit",
-
-    # Bihar
-    "east champaran":           "Purba Champaran",
-    "west champaran":           "Pashchim Champaran",
-    "kaimur (bhabua)":          "Bhabua",
-    "palamau":                  "Palamu",
-    "arwal":                    "Jehanabad",       # nearest centroid
-
-    # Chhattisgarh
-    "bijapur(cgh)":             "Bijapur",
-
-    # Delhi
-    "central delhi":            "Delhi",
-    "east delhi":               "Delhi",
-    "new delhi":                "Delhi",
-    "north delhi":              "Delhi",
-    "north west delhi":         "Delhi",
-    "south delhi":              "Delhi",
-    "south west delhi":         "Delhi",
-    "west delhi":               "Delhi",
-
-    # Gujarat
-    "ahmedabad":                "Ahmadabad",
-    "ahmed nagar":              "Ahmednagar",
-    "banaskantha":              "Banas Kantha",
-    "gandhi nagar":             "Gandhinagar",
-    "sabarkantha":              "Sabar Kantha",
-    "surendra nagar":           "Surendranagar",
-
-    # Himachal Pradesh
-    "bilaspur (hp)":            "Bilaspur",
-    "hamirpur(hp)":             "Hamirpur",
-    "lahul & spiti":            "Lahul And Spiti",
-
-    # J&K
-    "ananthnag":                "Anantnag (Kashmir South)",
-    "baramulla":                "Baramula (Kashmir North)",
-    "poonch":                   "Punch",
-    "reasi":                    "Rajauri",         # nearest centroid
-
-    # Jharkhand
-    "giridh":                   "Giridih",
-    "khunti":                   "Ranchi",          # nearest centroid
-    "ramgarh":                  "Ranchi",          # nearest centroid
-    "seraikela-kharsawan":      "Saraikela Kharsawan",
-    "east singhbhum":           "Purba Singhbhum",
-    "west singhbhum":           "Pashchim Singhbhum",
-
-    # Karnataka
-    "bangalore":                "Bangalore Urban",
-    "chickmagalur":             "Chikmagalur",
-    "chikkaballapur":           "Chikmagalur",     # nearest centroid
-    "dakshina kannada":         "Dakshin Kannad",
-    "davangere":                "Davanagere",
-    "ramanagar":                "Bangalore Rural",  # nearest centroid
-    "krishnagiri":              "Dharmapuri",       # nearest centroid
-    "uttara kannada":           "Uttar Kannand",
-    "yadgir":                   "Gulbarga",         # nearest centroid
-    "bijapur(kar)":             "Bijapur",
-
-    # Kerala
-    "kasargod":                 "Kasaragod",
-    "pathanamthitta":           "Pattanamtitta",
-
-    # Madhya Pradesh
-    "alirajpur":                "Jhabua",           # nearest centroid
-    "ashok nagar":              "Ashoknagar",
-    "budaun":                   "Badaun",
-    "khargone":                 "East Nimar",
-    "rajnandgaon":              "Raj Nandgaon",
-    "singrauli":                "Sidhi",            # nearest centroid
-
-    # Maharashtra
-    "aurangabad(bh)":           "Aurangabad",
-    "beed":                     "Bid",
-    "buldhana":                 "Buldana",
-    "gadchiroli":               "Garhchiroli",
-    "gondia":                   "Gondiya",
-    "mumbai":                   "Greater Bombay",
-    "raigarh(mh)":              "Raigarh",
-
-    # Manipur
-    "imphal east":              "East Imphal",
-    "imphal west":              "West Imphal",
-
-    # Meghalaya
-    "ri bhoi":                  "Ri-Bhoi",
-
-    # Nagaland
-    "kiphire":                  "Tuensang",         # nearest centroid
-    "longleng":                 "Mokokchung",       # nearest centroid
-    "peren":                    "Kohima",           # nearest centroid
-
-    # Odisha
-    "balangir":                 "Bolangir",
-    "baleswar":                 "Baleshwar",
-    "bargarh":                  "Baragarh",
-    "debagarh":                 "Deogarh",
-    "gadchiroli":               "Garhchiroli",
-    "jagatsinghapur":           "Jagatsinghpur",
-    "jajapur":                  "Jajpur",
-    "kendujhar":                "Keonjhar",
-    "khorda":                   "Khordha",
-    "nabarangapur":             "Nabarangpur",
-    "sonapur":                  "Sonepur",
-    "sundergarh":               "Sundargarh",
-
-    # Puducherry
-    "pondicherry":              "Puducherry",
-
-    # Punjab
-    "nawanshahr":               "Nawan Shehar",
-    "ropar":                    "Rupnagar",
-
-    # Rajasthan
-    "chittorgarh":              "Chittaurgarh",
-    "dholpur":                  "Dhaulpur",
-    "jhujhunu":                 "Jhunjhunun",
-
-    # Tamil Nadu
-    "tiruchirappalli":          "Tiruchchirappalli",
-    "tiruchirapalli":           "Tiruchchirappalli",
-    "tiruchi":                  "Tiruchchirappalli",
-    "trichy":                   "Tiruchchirappalli",
-    "tirunelveli":              "Tirunelveli Kattabo",
-    "tiruvallur":               "Thiruvallur",
-    "tiruvarur":                "Thiruvarur",
-    "kancheepuram":             "Kancheepuram",
-    "kanchipuram":              "Kancheepuram",
-    "the nilgiris":             "Nilgiris",
-    "tuticorin":                "Thoothukudi",
-    "kanyakumari":              "Kanniyakumari",
-    "chengalpattu":             "Kancheepuram",     # nearest centroid
-    "ranipet":                  "Vellore",           # nearest centroid
-    "tiruppur":                 "Tirupur",
-
-    # Uttar Pradesh
-    "barabanki":                "Bara Banki",
-    "bagpat":                   "Baghpat",
-    "raebareli":                "Rae Bareli",
-    "sant ravidas nagar":       "Sant Ravi Das Nagar",
-    "siddharthnagar":           "Siddharth Nagar",
-    "shrawasti":                "Shravasti",
-    "budaun":                   "Badaun",
-    "kanpur nagar":             "Kanpur",
-    "kheri":                    "Lakhimpur Kheri",
-
-    # Uttarakhand
-    "dehradun":                 "Dehra Dun",
-    "nainital":                 "Naini Tal",
-    "rudraprayag":              "Rudra Prayag",
-
-    # West Bengal
-    "bardhaman":                "Barddhaman",
-    "howrah":                   "Haora",
-    "malda":                    "Maldah",
-    "north dinajpur":           "Uttar Dinajpur",
-    "south dinajpur":           "Dakshin Dinajpur",
-    "sonipat":                  "Sonepat",
-
-    # Other / Union Territories
-    "dadra & nagar haveli":     "Dadra And Nagar Haveli",
-    "lakshadweep":              "Kavaratti",
-    "east sikkim":              "East",
-    "dibang valley":            "Upper Dibang Valley",
-    "bilaspur(cgh)":            "Bilaspur",
-}
-
-
-
-def normalize_district(raw: str) -> str:
-    """
-    Corrects known spelling mismatches for centroid lookup.
-    Returns the corrected district name, or raw.title() if no alias exists.
-    Never returns None — all districts are accepted.
-    """
-    key = raw.strip().lower()
-    if key in DISTRICT_ALIASES:
-        return DISTRICT_ALIASES[key]
-    return raw.strip().title()
-
-
-
-# ── Load pincode → district from local CSV (no network needed) ────────────────
-_CSV_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "datasets", "india pincode final.csv"
-)
-
-def _load_pincode_db(path: str) -> dict:
-    """
-    Reads 'india pincode final.csv' (columns: pincode, Taluk, Districtname, statename)
-    and returns {pincode_str: (district, state)} for O(1) lookup.
-    """
-    db = {}
-    try:
-        with open(path, newline="", encoding="latin-1") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                pin  = str(row.get("pincode", "")).strip().zfill(6)
-                dist = row.get("Districtname", "").strip()
-                state = row.get("statename", "").strip().title()  # 'TAMIL NADU' → 'Tamil Nadu'
-                if pin and dist:
-                    db[pin] = (dist, state)
-    except FileNotFoundError:
-        print(f"[WARNING] Pincode DB not found at {path}. Pincode lookup will fail.")
-    return db
-
-PINCODE_DB = _load_pincode_db(_CSV_PATH)
-
-
-# ── Pincode → District via local CSV ──────────────────────────────────────────
-def pincode_to_district(pincode: str):
-    """
-    Returns (raw_district, state, normalized_district, error).
-    - error: 'bad_pincode' | 'not_found' | None (success)
-    Fully offline — uses PINCODE_DB loaded from local CSV at startup.
-    """
+# ── Pincode → location (geo.py owns all name matching) ───────────────────────
+def pincode_to_location(pincode: str):
+    """Returns (loc, error); error is 'bad_pincode' | 'not_found' | None."""
     if not re.fullmatch(r"\d{6}", pincode):
-        return None, None, None, "bad_pincode"
-    result = PINCODE_DB.get(pincode)
-    if result is None:
-        return None, None, None, "not_found"
-    raw_district, state = result
-    normalized = normalize_district(raw_district)
-    return raw_district, state, normalized, None
+        return None, "bad_pincode"
+    loc = geo.lookup_pincode(pincode)
+    if not loc["valid"]:
+        return None, "not_found"
+    return loc, None
 
 
 # ── JSON helpers ─────────────────────────────────────────────────────────────
@@ -380,7 +179,7 @@ def sms_reply():
     # ── 1. REGISTRATION / DISTRICT CHANGE via #PINCODE ───────────────────────
     if body.startswith("#"):
         pincode = body[1:].strip()
-        raw_district, state, district, err = pincode_to_district(pincode)
+        loc, err = pincode_to_location(pincode)
         lang = get_lang(phone, users)
 
         if err in ("bad_pincode", "not_found"):
@@ -390,14 +189,14 @@ def sms_reply():
         existing_lang = users.get(phone, {}).get("lang", lang)
         users[phone] = {
             "pincode":  pincode,
-            "district": district,
-            "state":    state,
+            "district": loc["district"],
+            "state":    loc["state"],
             "lang":     existing_lang,
         }
         save_json(USERS_FILE, users)
         lang = existing_lang
 
-        crops = get_crops_for_state(state)
+        crops = get_crops_for_user(users[phone])
         crop_menu, crop_map = build_crop_menu(crops, lang)
         sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
@@ -406,8 +205,8 @@ def sms_reply():
             "update" if is_update else "new", "Registered"
         )
         return send(t("registered", lang,
-                      action=action, district=district,
-                      state=state, crop_menu=crop_menu))
+                      action=action, district=loc["district"],
+                      state=loc["state"], crop_menu=crop_menu))
 
     # ── LANG N  or  ** — switch language anytime ─────────────────────────────
     if body == "**":
@@ -439,8 +238,7 @@ def sms_reply():
             save_json(SESSIONS_FILE, sessions)
             return send(LANG_MENU)
         district = users[phone]["district"]
-        state_u  = users[phone].get("state", "")
-        crops    = get_crops_for_state(state_u)
+        crops    = get_crops_for_user(users.get(phone, {}))
         crop_menu, crop_map = build_crop_menu(crops, lang)
         sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
@@ -456,8 +254,7 @@ def sms_reply():
     if phone not in sessions:
         lang     = get_lang(phone, users)
         district = users[phone]["district"]
-        state_u  = users[phone].get("state", "")
-        crops    = get_crops_for_state(state_u)
+        crops    = get_crops_for_user(users.get(phone, {}))
         crop_menu, crop_map = build_crop_menu(crops, lang)
         sessions[phone] = {"step": "crop", "crop_map": crop_map}
         save_json(SESSIONS_FILE, sessions)
@@ -492,8 +289,7 @@ def sms_reply():
             return send(t("crop_ok_ask_month", lang,
                           crop=crop_name(session.get("crop", ""), lang)))
         elif step == "month":
-            state_u  = users.get(phone, {}).get("state", "")
-            crops    = get_crops_for_state(state_u)
+            crops    = get_crops_for_user(users.get(phone, {}))
             crop_menu, crop_map = build_crop_menu(crops, lang)
             session["step"]     = "crop"
             session["crop_map"] = crop_map
@@ -503,8 +299,7 @@ def sms_reply():
             district = users[phone]["district"]
             return send(t("main_menu", lang, district=district, crop_menu=crop_menu))
         else:
-            state_u  = users.get(phone, {}).get("state", "")
-            crops    = get_crops_for_state(state_u)
+            crops    = get_crops_for_user(users.get(phone, {}))
             crop_menu, crop_map = build_crop_menu(crops, lang)
             sessions[phone] = {"step": "crop", "crop_map": crop_map}
             save_json(SESSIONS_FILE, sessions)
@@ -514,8 +309,7 @@ def sms_reply():
     if step == "crop":
         crop_map = session.get("crop_map") or {}
         if not crop_map:
-            state_u  = users.get(phone, {}).get("state", "")
-            crops    = get_crops_for_state(state_u)
+            crops    = get_crops_for_user(users.get(phone, {}))
             _, crop_map = build_crop_menu(crops, lang)
         if body not in crop_map:
             valid    = "/".join(crop_map.keys())
@@ -548,20 +342,24 @@ def sms_reply():
         crop       = session["crop"]
         month      = session["month"]
         year       = datetime.datetime.now().year
-        district   = users[phone]["district"]
-        state      = users[phone].get("state", "Tamil Nadu")
+        loc        = geo.lookup_pincode(users[phone].get("pincode", ""))
+        district   = loc["district"] or users[phone].get("district", "")
+        state      = loc["state"] or users[phone].get("state", "")
         month_name = datetime.date(2000, month, 1).strftime("%B")
 
         try:
+            if not loc["valid"]:
+                raise ValueError(f"stored pincode for {phone[-4:]} no longer resolves")
             results = recommend(
                 commodity       = crop,
                 quantity_kg     = qty,
-                farmer_district = district,
-                farmer_state    = state,
+                farmer_lat      = loc["lat"],
+                farmer_lon      = loc["lon"],
                 target_month    = month,
                 target_year     = year,
-                max_distance_km = 200,
-                top_n           = 3
+                max_distance_km = MAX_DISTANCE_KM,
+                top_n           = 3,
+                farmer_district = district,
             )
 
             if not results:
@@ -583,12 +381,10 @@ def sms_reply():
                              profit=f"{r['net_profit']:,.0f}")
             msg += "\nMENU"
 
-        except Exception as e:
-            msg = (
-                f"Prediction failed. Try again.\n"
-                f"Send MENU to restart.\n"
-                f"Error: {e}"
-            )
+        except Exception:
+            log.exception("recommend() failed (crop=%s month=%s district=%s state=%s)",
+                          crop, month, district, state)
+            msg = t("error", lang)
 
         # Clear session after result
         sessions.pop(phone, None)
@@ -602,4 +398,4 @@ def sms_reply():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", port=5000)

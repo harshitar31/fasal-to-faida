@@ -14,9 +14,9 @@ sessions.json
 secrets.toml
 
 # Test / scratch files
-test_*.py
-debug_*.py
-tmp_err.txt
+/test_*.py
+/debug_*.py
+/tmp_err.txt
 Districtwise_*.csv
 Districtwise_*.xlsx
 

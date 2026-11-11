@@ -1,0 +1,45 @@
+# Hand-curated district matches, applied BEFORE automatic matching.
+# state = canonical state (see scripts/build_geo.py); source_district = name as it
+# appears in the pincode CSV or price data (spelling-insensitive);
+# centroid_district = exact name in datasets/geo/districts.csv for that state.
+# Districts newer than the centroid file map to the district they were carved from.
+state,source_district,centroid_district,note
+# -- corrections to wrong legacy aliases --
+Karnataka,Chikkaballapur,Kolar,carved from Kolar (legacy alias pointed to Chikmagalur ~250km away)
+Madhya Pradesh,Khargone,West Nimar,Khargone = West Nimar (legacy alias said East Nimar)
+Jharkhand,Ramgarh,Hazaribag,carved from Hazaribagh (legacy alias said Ranchi)
+Jammu and Kashmir,Reasi,Udhampur,carved from Udhampur (legacy alias said Rajauri)
+Nagaland,Longleng,Tuensang,carved from Tuensang (legacy alias said Mokokchung)
+# -- spellings the automatic matcher misses --
+Madhya Pradesh,Khandwa,East Nimar,Khandwa = East Nimar
+Chhattisgarh,Janjgir,Janjgir-Champa,
+West Bengal,Cooch Behar,Kochbihar,
+Jammu and Kashmir,Budgam,Bagdam,centroid file spelling
+Daman and Diu,Diu,Junagadh,centroid labelled Junagadh under Daman and Diu sits on Diu (20.73N 70.84E)
+West Bengal,Medinipur,West Midnapore,undivided Medinipur; town is in Paschim Medinipur
+# -- districts newer than the centroid file -> parent district --
+Andaman and Nicobar,Nicobar,Nicobar Islands,
+Andaman and Nicobar,North And Middle Andaman,Andaman Islands,
+Andaman and Nicobar,South Andaman,Andaman Islands,
+Chhattisgarh,Bijapur(CGH),Dantewada,carved from Dantewada
+Chhattisgarh,Gariaband,Raipur,carved from Raipur
+Chhattisgarh,Narayanpur,Bastar,carved from Bastar
+Gujarat,Tapi,Surat,carved from Surat
+Haryana,Mewat,Gurgaon,Nuh; carved from Gurgaon/Faridabad
+Haryana,Palwal,Faridabad,carved from Faridabad
+Jammu and Kashmir,Bandipur,Baramula (Kashmir North),carved from Baramulla
+Jammu and Kashmir,Kulgam,Anantnag (Kashmir South),carved from Anantnag
+Punjab,Barnala,Sangrur,carved from Sangrur
+Punjab,Fazilka,Firozpur,carved from Firozpur
+Punjab,Mohali,Rupnagar,SAS Nagar; carved mostly from Rupnagar
+Punjab,Tarn Taran,Amritsar,carved from Amritsar
+Rajasthan,Pratapgarh,Chittaurgarh,carved mostly from Chittorgarh
+Uttar Pradesh,Amethi,Sultanpur,carved from Sultanpur/Raebareli
+Uttar Pradesh,Amroha,Jyotiba Phule Nagar,renamed
+Uttar Pradesh,Ayodhya,Faizabad,renamed
+Uttar Pradesh,Prayagraj,Allahabad,renamed
+Uttar Pradesh,Sambhal,Moradabad,carved from Moradabad
+Uttar Pradesh,Shamli,Muzaffarnagar,carved from Muzaffarnagar
+West Bengal,Alipurduar,Jalpaiguri,carved from Jalpaiguri
+West Bengal,Coochbehar,Kochbihar,
+West Bengal,Paschim Bardhaman,Barddhaman,carved from Bardhaman

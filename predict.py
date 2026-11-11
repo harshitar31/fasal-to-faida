@@ -19,7 +19,11 @@ print("📦 Loading model artifacts...")
 _model    = joblib.load('model/price_model.joblib')
 _encoders = joblib.load('model/encoders.joblib')
 _features = joblib.load('model/features.joblib')
-_df       = pd.read_parquet('model/clean_df.parquet')
+# Only the columns used for history lookups (the full table has ~30 feature
+# columns and roughly doubles memory, which matters on free hosting tiers).
+_df       = pd.read_parquet('model/clean_df.parquet', columns=[
+    'price_date', 'commodity', 'market', 'district', 'state',
+    'modal_price', 'min_price', 'max_price'])
 print("   ✅ Model loaded.")
 
 

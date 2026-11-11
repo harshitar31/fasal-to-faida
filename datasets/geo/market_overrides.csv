@@ -1,0 +1,18 @@
+# Mandis that the raw Agmarknet price data files under the WRONG state, almost
+# always because two states have a district with the same name. Verified against
+# datasets/final_data.csv (official market list). Only the map location is
+# corrected; src_state/src_district stay as-is because the model was trained on them.
+market,src_state,state,district,note
+Bharuasumerpur,Himachal Pradesh,Uttar Pradesh,Hamirpur,Hamirpur UP mislabelled as Hamirpur HP
+Kurara,Himachal Pradesh,Uttar Pradesh,Hamirpur,Hamirpur UP mislabelled as Hamirpur HP
+Maudaha,Himachal Pradesh,Uttar Pradesh,Hamirpur,Hamirpur UP mislabelled as Hamirpur HP
+Muskara,Himachal Pradesh,Uttar Pradesh,Hamirpur,Hamirpur UP mislabelled as Hamirpur HP
+Raath,Himachal Pradesh,Uttar Pradesh,Hamirpur,Hamirpur UP mislabelled as Hamirpur HP
+Golagokarnath,Assam,Uttar Pradesh,Lakhimpur Kheri,Lakhimpur Kheri UP mislabelled as Lakhimpur Assam
+Paliakala,Assam,Uttar Pradesh,Lakhimpur Kheri,Lakhimpur Kheri UP mislabelled as Lakhimpur Assam
+Lakhimpur,Assam,Uttar Pradesh,Lakhimpur Kheri,official list has this market only in UP
+Bariya,Uttar Pradesh,Chhattisgarh,Surguja,Balrampur CG (carved from Surguja) mislabelled as Balrampur UP
+Kusmee,Uttar Pradesh,Chhattisgarh,Surguja,Balrampur CG (carved from Surguja) mislabelled as Balrampur UP
+Rajpur,Uttar Pradesh,Chhattisgarh,Surguja,Balrampur CG (carved from Surguja) mislabelled as Balrampur UP
+Ramanujganj,Uttar Pradesh,Chhattisgarh,Surguja,Balrampur CG (carved from Surguja) mislabelled as Balrampur UP
+Namhol(Bilaspur),Chhattisgarh,Himachal Pradesh,Bilaspur,Bilaspur HP mislabelled as Bilaspur CG
